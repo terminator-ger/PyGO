@@ -18,6 +18,7 @@ from feature import get_feat_vec
 from GoNet import GoNet
 import torch as th
 import torch.nn.functional as F
+import torchvision
 
 import warnings
 warnings.filterwarnings('always') 
@@ -34,6 +35,10 @@ if __name__ == '__main__':
     classes = [0,1,2]
     data = []
     label = []
+
+    #model = GoNet()
+    model = torchvision.models.mobilenet_v2(pretrained=True)
+    model.classifier[1] = th.nn.Linear(1280, 3)
 
     for c in classes:
         for file in os.listdir('{}'.format(c)):
@@ -100,9 +105,6 @@ if __name__ == '__main__':
     X_train = X_train.permute(0,3,1,2)/255.0
     X_test  = X_test.permute(0,3,1,2)/255.0
     y_test = y_cat[idx[-SPLT:]]
-
-    #model = GoNet()
-    model = th.hub.load('pytorch/vision:v0.9.0', 'mobilenet_v2', pretrained=True)
 
 
 
