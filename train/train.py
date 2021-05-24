@@ -36,9 +36,10 @@ if __name__ == '__main__':
     data = []
     label = []
 
-    #model = GoNet()
-    model = torchvision.models.mobilenet_v2(pretrained=True)
-    model.classifier[1] = th.nn.Linear(1280, 3)
+    model = GoNet()
+#    model = torchvision.models.mobilenet_v2()
+#    model.classifier[1] = th.nn.Linear(1280, 3)
+    #model = th.load('train/mobile_weights_5_1.0.pt')
 
     for c in classes:
         for file in os.listdir('{}'.format(c)):
@@ -72,16 +73,19 @@ if __name__ == '__main__':
 #        x_train.append(get_feat_vec(d))
 #   
 #    X = np.array(x_train)
-
-    X = np.array(data)
-    y = to_categorical(y, 3)
-
-
+    data = [cv2.cvtColor(x, cv2.COLOR_BGR2GRAY) for x  in data]
     idx = np.arange(len(data))
     np.random.shuffle(idx)
 
+    # shuffle
+    data = np.array(data)
     data = data[idx]
-    L = len(data)
+    X = np.array(data)
+    pdb.set_trace()
+    X = np.expand_dims(X, -1)
+    y = to_categorical(y, 3)
+
+    L = data.shape[0]
     SPLT = 100
     X_train = X[idx[:L-SPLT]]
     y_train = y[idx[:L-SPLT]]
@@ -104,12 +108,14 @@ if __name__ == '__main__':
     X_test  = th.from_numpy(X_test)
     X_train = X_train.permute(0,3,1,2)/255.0
     X_test  = X_test.permute(0,3,1,2)/255.0
+
     y_test = y_cat[idx[-SPLT:]]
 
 
 
     opt = th.optim.Adam(model.parameters())
     loss_fn = th.nn.MultiLabelSoftMarginLoss()
+    print('train')
     for i in range(400):
         opt.zero_grad()
         y_pred = model(X_train)
@@ -121,9 +127,9 @@ if __name__ == '__main__':
             y_pred = toNP(y_pred)
             y_pred = np.argmax(y_pred, axis=1)
             f1 = f1_score(y_test, y_pred, average='micro')
+            print("Epoch {} : {}".format(i,f1))
         if i % 5 == 0:
-            th.save(model, 'mobile_weights_{}_{}.pt'.format(i, f1))
-            print(classification_report(y_test, y_pred))
+            th.save(model, 'weights_{}_{}.pt'.format(i, f1))
 
             plt.subplot(131)
             if np.any((y_pred==0)):
@@ -135,8 +141,8 @@ if __name__ == '__main__':
             plt.subplot(133)
             if np.any((y_pred==2)):
                 plt.imshow(np.vstack(data[-SPLT:][y_pred==2]))
-            plt.show(block=False)
-            plt.pause(0.01)
+            plt.savefig('{}.png'.format(i), dpi=400)
 
+    print(classification_report(y_test, y_pred))
 
 #    dump(best, 'svm.joblib') 
