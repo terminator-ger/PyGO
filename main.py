@@ -314,8 +314,8 @@ def analyze_board(l, r, t, b, img):
         l3 = np.array([path[2][0], path[3][1]])
         l4 = np.array([path[0][0], path[3][1]])
         p = np.array([l1,l2,l3,l4]).astype(int)
-        #patch = cv2.cvtColor(crop(p, img), cv2.COLOR_BGR2GRAY)
-        patch = crop(p, img)
+        patch = cv2.cvtColor(crop(p, img), cv2.COLOR_BGR2GRAY)
+        #patch = crop(p, img)
         patch = patch / 255.0
 
         patch =  transform.resize(patch, (32,32),  anti_aliasing=True)
@@ -343,6 +343,7 @@ def analyze_board(l, r, t, b, img):
 #
 #    val_lbl = SVM.predict(val)
     X = th.from_numpy(np.stack(patches)).permute(0,3,1,2)
+    pdb.set_trace()
     val_lbl = GoNet(X)
     val_lbl = toNP(val_lbl)
     val_lbl = np.argmax(val_lbl, axis=1)
@@ -464,9 +465,9 @@ if __name__ == '__main__':
     webcam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     cx = intr[0,2]
     cy = intr[1,2]
-    gmm = load('gmm.joblib')
-    SVM = load('train/svm.joblib')
-    GoNet = th.load('train/weights.pt')
+    #gmm = load('gmm.joblib')
+    #SVM = load('train/svm.joblib')
+    GoNet = th.load('train/weights_gonet.pt')
 
     print("Estimating Homography")
     vps_list_1 = []
