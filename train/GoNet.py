@@ -2,22 +2,32 @@ import torch as th
 import torch.nn.functional as F
 import pdb
 
-def conv1x1(ipt, out, stride):
+def conv1x1(ipt, out, stride=1, dilation=1):
     return  th.nn.Sequential(
-                th.nn.Conv2d(ipt, out, kernel_size=1, stride=stride, bias=False),
+                th.nn.Conv2d(ipt, out, 
+                    kernel_size=1, 
+                    stride=stride, 
+                    dilation=dilation,
+                    bias=False),
                 th.nn.BatchNorm2d(out)
             )
 
 class ResBlock(th.nn.Module):
-    def __init__(self, ipt, out, stride):
+    def __init__(self, ipt, out, stride=1, dilation=1):
         super(ResBlock, self).__init__()
-        padding = 1
-        self.c1 = th.nn.Conv2d(ipt, out, (3,3), padding=padding)
-        self.c2 = th.nn.Conv2d(out, out, (3,3), stride=stride, padding=padding)
+        if stride == 1 and dilation == 1:
+            padding = 1
+        elif stride == 1 and dilation ==2:
+            padding = 2
+        elif stride == 2 and dilation == 1:
+            padding = 1
+
+        self.c1 = th.nn.Conv2d(ipt, out, (3,3), padding=1, bias=False)
+        self.c2 = th.nn.Conv2d(out, out, (3,3), stride=stride, padding=padding, dilation=dilation, bias=False)
         self.bn1 = th.nn.BatchNorm2d(out)
         self.bn2 = th.nn.BatchNorm2d(out)
         self.downsample = None
-        self.downsample = conv1x1(ipt, out, stride)
+        self.downsample = conv1x1(ipt, out, stride=stride)
 
     def forward(self, x):
         identity = x
@@ -42,14 +52,16 @@ class GoNet(th.nn.Module):
         
         self.conv0 = th.nn.Conv2d(1,  16, (3,3), padding=1)
 
-        self.block0 = ResBlock(16, 32, 1)        
-        self.block1 = ResBlock(32, 32, 2)        
-        self.block2 = ResBlock(32, 64, 1)        
-        self.block3 = ResBlock(64, 64, 2)        
+        self.block0 = ResBlock(16, 32, stride=2)        
+        self.block1 = ResBlock(32, 64, stride=1, dilation=2)        
+        self.block2 = ResBlock(64, 64, stride=1, dilation=2)        
+        #self.block2 = ResBlock(64, 64)        
+        self.block3 = ResBlock(64, 128, stride=1, dilation=2)        
 
         self.classifier = th.nn.Sequential(
-            th.nn.Linear(64 * 8 * 8, 3), 
-            th.nn.Softmax(dim=-1)
+            th.nn.AdaptiveMaxPool2d((1,1)),
+            th.nn.Flatten(1),
+            th.nn.Linear(128, 3), 
         )
 
     def forward(self, x):
