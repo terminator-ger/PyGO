@@ -40,42 +40,16 @@ if __name__ == '__main__':
     label = []
 
     model = GoNet()
-    #model = torchvision.models.mobilenet_v2(pretrained=True)
-    #model.features[0] = th.nn.Conv2d(1, 32, (3,3), stride=(2,2), padding=(1,1), bias=False)
-    #model.classifier[1] = th.nn.Linear(1280, 3)
-    #pdb.set_trace()
-    #model = th.load('train/mobile_weights_5_1.0.pt')
-
-    for c in classes:
-        for file in os.listdir('{}'.format(c)):
-            d = cv2.imread('{}/{}'.format(c,file))
-            d = cv2.resize(d, (32,32))
-            data.append(d)
-            label.append(c)
-
-    sometimes = lambda aug: iaa.Sometimes(0.85, aug)
-    seq = iaa.Sequential([
-        iaa.Fliplr(0.5), # horizontally flip 50% of all images
-        iaa.Flipud(0.2), # vertically flip 20% of all images
-        iaa.contrast.GammaContrast(),
-        iaa.imgcorruptlike.Saturate(),
-        iaa.imgcorruptlike.Brightness(),
-    ])
-    data = seq(images=data)
-
-    if channels == 1:
-        data = [np.expand_dims(cv2.cvtColor(x, cv2.COLOR_BGR2GRAY), -1) for x  in data]
-    data = [x/255.0 for x in data]
-#    x_train = []
-#    for d in data:
-#        d = cv2.cvtColor(d, cv2.COLOR_BGR2GRAY)
-#        d = img_as_float(d)
-#        x_train.append(get_feat_vec(d))
-#    X = np.array(x_train)
-
     idx = np.arange(len(data))
     np.random.shuffle(idx)
 
+    # shuffle
+    data = np.array(data)
+    data = data[idx]
+    X = np.array(data)
+
+    X = np.expand_dims(X, -1)
+    y = to_categorical(y, 3)
 
     X  = np.array(data)
     y  = np.array(label)
