@@ -1,10 +1,13 @@
 from __future__ import division 
+from sklearn.mixture import GaussianMixture
+from pylab import concatenate, normal
+import scipy.stats as stats
 import pdb
 import random
 from numpy.core.numeric import ones
 from tqdm import tqdm
 import cv2
-#from icp import icp
+from icp import icp
 import numpy as np
 from pyELSD.pyELSD import PyELSD
 from lu_vp_detect import VPDetection
@@ -16,6 +19,9 @@ from skimage.exposure import equalize_hist
 from joblib import load, dump
 from sklearn.mixture import GaussianMixture
 from multiprocessing.connection import Client
+from pylab import *
+from scipy.optimize import curve_fit
+
 
 from skimage import data, color, img_as_ubyte, exposure, transform, img_as_float
 from skimage.feature import canny, hog, corner_harris, corner_subpix, corner_peaks
@@ -28,9 +34,7 @@ from skimage.segmentation import clear_border
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, square
 from skimage.color import label2rgb
-from src.feature import get_feat_vec
 from scipy.spatial import distance_matrix
-from src.GoNet import GoNet
 from sklearn.neighbors import KNeighborsClassifier
 import torch as th
 from numpy.lib.shape_base import expand_dims
@@ -65,10 +69,11 @@ import pdb
 from sklearn.linear_model import SGDClassifier
 import sys
 from time import time
+import argparse
 
 import numpy as np
 import matplotlib.pyplot as plt
-from src.classifier import GoClassifier
+from classifier import GoClassifier
 
 from dask import delayed
 
@@ -81,7 +86,8 @@ from skimage.transform import integral_image
 from skimage.feature import haar_like_feature
 from skimage.feature import haar_like_feature_coord
 from skimage.feature import draw_haar_like_feature
-import argparse
+
+from pygo_utils import toByteImage
 
 import sys
 sys.path.insert(0, './train')
@@ -89,13 +95,10 @@ sys.path.insert(0, './train')
 
 import warnings
 warnings.filterwarnings('always') 
+
 def to_categorical(y, num_classes):
     """ 1-hot encodes a tensor """
     return np.eye(num_classes, dtype='uint8')[y]
-
-
-def toNP(x):
-    return x.detach().cpu().numpy()
 
 def warp_lines(lines, H):
     ones = np.ones((lines.shape[0], 1))
@@ -250,6 +253,76 @@ def plot_circles2(img, c):
         img = cv2.circle(img, (int(c[i,0]),int(c[i,1])), radius=5, color=(255, 0, 0), thickness=1)
     return img
 
+
+def clear_bimodal(lines, image_height):
+    circ_dists = distance_matrix(lines, lines, 2)
+    dists = circ_dists
+    # sort by closes eight dists
+    N = 8
+    circ_dists_idx = np.argsort(circ_dists, axis=0)
+    circ_dists = np.sort(circ_dists, axis=0)
+    circ_dists = circ_dists[1:(1+N)]
+    # assumption is that the whole board is visible so the the max distances are w/19, h/19 and the board fills at least half the images height..
+    max_dist = image_height /19
+    min_dist = image_height/2 /19
+    circ_dists = circ_dists.reshape(-1,1)
+    circ_dists = np.delete(circ_dists, np.argwhere(circ_dists>max_dist))
+    circ_dists = np.delete(circ_dists, np.argwhere(circ_dists<min_dist))
+
+    f = np.ravel(circ_dists).astype(np.float)
+    f=f.reshape(-1,1)
+    # Determine parameters mu1, mu2, sigma1, sigma2, w1 and w2
+    gm = GaussianMixture(n_components=4, random_state=0).fit(f.reshape(-1,1))
+
+    mu = gm.means_
+    std = (gm.covariances_)
+    weights = gm.weights_
+    # discard wide distribution
+    for i in range(2):
+        delidx= np.argmin(weights)
+        mu  = np.delete(mu,  delidx)
+        std = np.delete(std, delidx)
+        weights   = np.delete(weights,   delidx)
+    #plt.hist(f, bins=100, histtype='bar', density=True, ec='red', alpha=0.5)
+
+    f_axis = f.copy().ravel()
+    f_axis.sort()
+    plt.hist(f, bins=100, histtype='bar', density=True, ec='red', alpha=0.5)
+    plt.plot(f_axis,weights[0]*stats.norm.pdf(f_axis,mu[0],np.sqrt(std[0])).ravel(), c='red')
+    plt.plot(f_axis,weights[1]*stats.norm.pdf(f_axis,mu[1],np.sqrt(std[1])).ravel(), c='red')
+    plt.rcParams['agg.path.chunksize'] = 10000
+    plt.grid()
+    plt.show()
+    # get index of matching points
+    idx0 = np.argwhere(np.abs(dists - mu[0]) < 1.2* std[0])
+    idx1 = np.argwhere(np.abs(dists - mu[1]) < 1.2* std[1])
+    idx = np.intersect1d(idx0,idx1)
+    lines_selected = lines[idx]
+
+    return lines_selected
+
+def fit_gmm_1d(x, N=1, F=1., top=1):
+    x = np.ravel(x).astype(np.float)
+    x=x.reshape(-1,1)
+    # Determine parameters mu1, mu2, sigma1, sigma2, w1 and w2
+    gm = GaussianMixture(n_components=N, random_state=0).fit(x)
+    mu = gm.means_.tolist()
+    sig = gm.covariances_.tolist()
+    w = gm.weights_.tolist()
+    MU = []
+    SIG = []
+    W = []
+    for i in range(top):
+        idx = np.argmax(w)
+        MU.append(mu.pop(idx))
+        W.append(sig.pop(idx))
+        SIG.append(w.pop(idx))
+
+    idx = [np.argwhere(np.abs(x - MU[i]) < F * SIG[i]) for i in range(top)]
+    return idx 
+ 
+ 
+
 def clear(lines):
     # cluster x
     from scipy.spatial.distance import pdist
@@ -258,10 +331,11 @@ def clear(lines):
     circ_dists = distance_matrix(lines, lines, 2)
     x_data = lines[:,0]
     # sort by closes two dists
-    N = 3
+    N = 8
     circ_dists = np.sort(circ_dists, axis=0)
     circ_dists_idx = np.argsort(circ_dists, axis=0)
     circ_dists = circ_dists[1:(1+N)]
+    pdb.set_trace()
     med_dist = np.median(circ_dists)
     circ_dists = np.square(circ_dists-med_dist)
 
@@ -270,17 +344,19 @@ def clear(lines):
                                 linkage='single',
                                 distance_threshold=4)
     lblx = km.fit_predict(circ_dists.T)
-    #plt.scatter(lines[:,0], lines[:,1], c=lblx)
-    #plt.show()
+    plt.scatter(lines[:,0], lines[:,1], c=lblx)
+    plt.show()
+    pdb.set_trace()
+
     _, xcount = np.unique(lblx, return_counts=True)
     target_cluster = np.argmax(xcount)
     delx = np.argwhere(lblx != target_cluster)
     lines = np.delete(lines, delx, axis=0)
     lblx = np.delete(lblx, delx)
 
-    #plt.scatter(lines[:,0], lines[:,1], c=lblx)
-    #plt.show()
-    #pdb.set_trace()
+    plt.scatter(lines[:,0], lines[:,1], c=lblx)
+    plt.show()
+    pdb.set_trace()
    # x_data = lines[:,1]
    # lblx = km.fit_predict(x_data.reshape(-1,1))
    # #plt.scatter(lines[:,0], lines[:,1], c=lblx)
@@ -351,7 +427,13 @@ def intersect(x,y):
     return np.array(i)
 
 def cluster(x,y):
+    '''
+    receives vertial and horizontal lines (belonging to a vanishing point)
+    of the shape (N,4) with [x,y,x,y] being the coords of each lines (start,end)
+    '''
     from scipy.cluster.hierarchy import linkage, average, fcluster
+    x = np.squeeze(np.array(x))
+    y = np.squeeze(np.array(y))
     arr = np.concatenate((x,y)).reshape(-1,2)
     X = average(arr.reshape(-1,2))
     cl = fcluster(X, 10, criterion='distance')
@@ -360,6 +442,11 @@ def cluster(x,y):
     #c.append(np.mean(arr[np.argwhere(cl==i),:], axis=0))
     c = [np.mean(arr[np.argwhere(cl==i),:], axis=0) for i in range(1,cl.max())]
     c = np.array(c).reshape(-1,2)
+    #plt.subplot(211)
+    #plt.scatter(arr[:,0],arr[:,1], label='orig')
+    #plt.subplot(212)
+    #plt.scatter(c[:,0],c[:,1], label='cleaned')
+    #plt.show()
     return c
 
 def get_ref_go_board_coords(min, max):
@@ -511,6 +598,13 @@ def get_segment_crop(img,tol=0, mask=None):
         mask = img > tol
     return img[np.ix_(mask.any(1), mask.any(0))]
 
+def scplt(x, c=None):
+            if c is not None:
+                plt.scatter(x[:,0], x[:,1], c=c)
+            else:
+                plt.scatter(x[:,0], x[:,1])
+
+
 def mask_board(image, go_board):
     mask = np.zeros_like(image)
     go = go_board.reshape(19,19,2)
@@ -590,7 +684,20 @@ class GoBoard:
             patches.append(patch)
             #m = np.nanmean(patch)
         return patches
- 
+
+    def linesToLength(self, lines):
+        '''lines [N,4]'''
+        dx = lines[:,0] - lines[:,2]
+        dy = lines[:,1] - lines[:,3]
+        d = np.sqrt(dx**2 + dy**2)
+        return d
+
+    def filterByLength(self, lines):
+        length = self.linesToLength(lines)
+        idx = fit_gmm_1d(length, N=2, F=1.5)
+        return lines[idx]
+
+
     def calib(self, img):
         h,w = img.shape
         van_points = self.vp.find_vps(img)
@@ -622,74 +729,126 @@ class GoBoard:
         img_cw = cv2.warpPerspective(img, H, img_limits)
         img_dcw = np.asarray(img_cw, dtype=np.double, order='C')
 
-
         lines_warpedV = []
         lines_warpedH = []
 
         for lines in lines_vp:
             lines_warpedV.append(cv2.perspectiveTransform(np.stack(lines[0]).reshape(-1,1,2), H).reshape(-1,4))
             lines_warpedH.append(cv2.perspectiveTransform(np.stack(lines[1]).reshape(-1,1,2), H).reshape(-1,4))
+        # filter lines by section length
+
+        self.lines_warpedV = self.filterByLength(lines_warpedV[0])
+        self.lines_warpedH = self.filterByLength(lines_warpedH[0])
+        
 
         lines_raw_orig = cluster(lines[0], lines[1])
-        lines = cluster(lines_warpedH[0], lines_warpedV[0])
-        lines = clear(lines)
-
+        lines = cluster(lines_warpedH, lines_warpedV)
+        h,w = img_cw.shape
+        lines = clear_bimodal(lines, h)
+        #plt.title("after gmm")
+        #plt.imshow(img_cw)
+        #plt.scatter(lines[:,0], lines[:,1])
+        #plt.show()
 
         img_max = (img_cw.shape[1], img_cw.shape[0])
         img_min = (0,0)
-    
+
         self.grid = get_ref_go_board_coords(np.min(lines, axis=0), np.max(lines, axis=0))
         img_cw = cv2.warpPerspective(img, H, img_limits)
 
         def visualize(iteration, error, X, Y, ax):
-            #if iteration % 50 == 0:
+            if iteration % 1 == 0:
                 plt.cla()
                 ax.scatter(X[:, 0],  X[:, 1], color='red', label='Target')
                 ax.scatter(Y[:, 0],  Y[:, 1], color='blue', label='Source')
+                plt.imshow(img)
                 plt.text(0.87, 0.92, 'Iteration: {:d}\nQ: {:06.4f}'.format(
                     iteration, error), horizontalalignment='center', verticalalignment='center', transform=ax.transAxes, fontsize='x-large')
                 ax.legend(loc='upper left', fontsize='x-large')
                 plt.draw()
                 plt.pause(0.001)
 
-        
+
         fig = plt.figure()
         fig.add_axes([0, 0, 1, 1])
         callback = partial(visualize, ax=fig.axes[0])
+        grid17x17 = self.grid.reshape(19,19,2)[1:-1,1:-1].reshape(-1,1,2)
+        lines       = np.squeeze(cv2.perspectiveTransform(lines.reshape(-1,1,2),     np.linalg.inv(H), (img.shape[1], img.shape[0]))).squeeze()
+        grid17x17   = np.squeeze(cv2.perspectiveTransform(grid17x17,                 np.linalg.inv(H), (img.shape[1], img.shape[0]))).squeeze()
+        self.gridW  = np.squeeze(cv2.perspectiveTransform(self.grid.reshape(-1,1,2), np.linalg.inv(H), (img.shape[1], img.shape[0]))).squeeze()
 
-        reg = AffineRegistration(**{'X': lines, 
-                                'Y': self.grid, 
-                                'max_iterations': 8000,
-                                'tolerance': 0.0000001,
+        reg = AffineRegistration(**{'Y': lines, 
+                                    'X': grid17x17, 
+                                #'max_iterations': 15000,
+                                #'tolerance': 0.0000001,
+                                #'B' : np.eye(2)*5
                                 })
-        ty, param = reg.register(callback)
-        #ty, param = reg.register()
+        #ty, param = reg.register(callback)
+        ty, param = reg.register()
+        Rot   = param[0]
+        Trans = param[1]
+        RotI = np.linalg.inv(Rot)
 
-        R = np.eye(3)
-        R[0:2,0:2]=param[0]
-        R[0:2,2]=param[1]
+        #scplt(grid17x17)
+        #wl = np.dot(lines, Rot) + np.tile(Trans, (lines.shape[0], 1))
+        #scplt(wl)
+        #plt.show()
 
+        #scplt(lines)
+        #wg =  np.dot(grid17x17 - np.tile(Trans, (grid17x17.shape[0],1)), np.linalg.inv(Rot))
+        #scplt(wg)
+        #plt.show()
+        self.gridW = self.gridW.reshape(-1,2) 
+        ow_board = (self.gridW - np.tile(Trans, (self.gridW.shape[0],1))) @ RotI
 
-        w_board = cv2.transform(np.array([self.grid]), (R))[0][:,:2]
-        ow_board = cv2.perspectiveTransform(np.array([self.grid]), R@np.linalg.inv(H))[0]
+        T = np.eye(3)
+        T[:2,2] = Trans
+        RotIH = np.eye(3)
+        RotIH[:2,:2] = RotI
+        H_ = (H @ T) @ RotIH
+        #print(H)
+        #print(H_)
+        #plt.imshow(cv2.warpPerspective(img, H_, img_limits))
+        #plt.show()
+
+        #self.H = (R) @ np.linalg.inv(H)
+        #self.H =  np.linalg.inv(H)
+        self.H =  H_
+        self.hasEstimate = True
+        img_grid = plot_grid(img.copy(), ow_board.reshape(-1,2))
+        cv2.imshow('PyGO', img_grid)
+        cv2.waitKey(1500)       
+        Trans = np.concatenate((np.eye(2), Trans.reshape(2,1)),axis=1)
+        Rot  = np.concatenate((RotI, np.zeros((2,1))),axis=1)
+        imgW = cv2.warpPerspective(img, (H), self.img_limits)
+        imgW = cv2.warpAffine(imgW,  Trans, self.img_limits)
+        imgW = cv2.warpAffine(imgW, Rot, self.img_limits)
+        plt.imshow(imgW)
+        scplt(self.grid.reshape(-1,2))
+        plt.show()
+        pdb.set_trace()
+        #plt.imshow(img_cw)
+        #plt.scatter(w_board[:,0], w_board[:,1])
+        #plt.show()
 
         #img_grid = plot_grid(img.copy(), ow_board.reshape(-1,2))
         #cv2.imshow('PyGO', img_grid)
         #cv2.waitKey(500)        
     
-        src_pt = find_src_pt(ow_board, lines_raw_orig)
-        H_refined = cv2.findHomography(src_pt, ow_board)[0]
-        w_board = cv2.perspectiveTransform(np.array([self.grid]), R @ np.linalg.inv(H) @ np.linalg.inv(H_refined))[0]
+        #src_pt = find_src_pt(ow_board, lines_raw_orig)
+        #pdb.set_trace()
+        #H_refined = cv2.findHomography(src_pt, ow_board)[0]
+        #w_board = cv2.perspectiveTransform(np.array([self.grid]), R @ np.linalg.inv(H) @ np.linalg.inv(H_refined))[0]
 
-        H_refined = R @ np.linalg.inv(H) @ np.linalg.inv(H_refined)
+        #H_refined = R @ np.linalg.inv(H) @ np.linalg.inv(H_refined)
 
-        img_grid = plot_grid(img.copy(), w_board.reshape(-1,2))
-        cv2.imshow('PyGO', img_grid)
-        cv2.waitKey(1500)       
-        self.H = H_refined 
-        self.hasEstimate=True
+        #img_grid = plot_grid(img.copy(), w_board.reshape(-1,2))
+        #cv2.imshow('PyGO', img_grid)
+        #cv2.waitKey(1500)       
+        #self.H = H_refined 
+        #self.hasEstimate=True
 
-        print(self.H)
+        #print(self.H)
  
     def extract(self, img):
         img_w = cv2.warpPerspective(img, np.linalg.inv(self.H), self.img_limits)
@@ -738,11 +897,6 @@ class GoBoard:
         for idx in [idx_w, idx_b, idx_n]:
             patches.append(np.array(p)[idx])
         return patches
-
-class Color(Enum):
-    WHITE = 0
-    BLACK = 1
-    NONE  = 2
 
 class GameState(Enum):
     RUNNING = 0
@@ -893,26 +1047,25 @@ class MotionDetection:
 if __name__ == '__main__':
     parse = argparse.ArgumentParser('PyGO')
     parse.add_argument('--video', default='')
-    parse.add_argument('--seek',  default=0.0)
+    parse.add_argument('--seek',  default=0.0, type=float)
     args = parse.parse_args()
-    ELSD = PyELSD()
-    PLOT_CIRCLES=False
-    PLOT_LINES=False
-    global COUNT 
-    COUNT = 0
-    CC = CameraCalib(np.load('config/calib_960.npy'))
 
     if args.video !='':
         webcam = cv2.VideoCapture(args.video)
         if args.seek > 0.0:
             # seek is in seconds -> mult with frames
-            fps = webcam.get(cv2.CV_CAP_PROP_FPS)
-            webcam.set(cv2.CV_CAP_PROP_POS_FRAMES, (fps*args.seek)-1) 
+            webcam.set(cv2.CAP_PROP_POS_MSEC, (1000*args.seek)-1) 
     else:
-        # use live webcam
-        webcam = cv2.VideoCapture(0)
-        webcam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    
+        raise FileNotFoundError('No Video specified!')
+
+    ELSD = PyELSD()
+    PLOT_CIRCLES=False
+    PLOT_LINES=False
+    global COUNT 
+    COUNT = 0
+    CC = CameraCalib(np.load('../config/calib_960.npy'))
+
+
     _, img = webcam.read()
     last_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
@@ -930,6 +1083,17 @@ if __name__ == '__main__':
     print('(c)alibrate      (t)rain')
     print('(n)ew game       (f)nish game')
     print('(a)nalyze')
+    
+    # init
+    _,img_c = webcam.read()
+    img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
+
+    print('Calibration')
+    BOARD.calib(img)
+    
+    print('New Game started')
+    GS.startNewGame(19)
+
 
     while True:
         #webcam.grab()
@@ -937,58 +1101,55 @@ if __name__ == '__main__':
         _,img_c = webcam.read()
         img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
 
-        last_key = cv2.waitKey(1) 
-        if last_key == ord('c'):
-            print('Calibration')
-            BOARD.calib(img)
+        #last_key = cv2.waitKey(1) 
+        #if last_key == ord('c'):
+        #    print('Calibration')
+        #    BOARD.calib(img)
       
-        elif last_key == ord('t'):
-            print('Clear Board - Press (c)ontinue')
-            patches = []
-            while True:
-                ret, img_c = webcam.read()
-                img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
-                last_key = cv2.waitKey(1) 
+        #elif last_key == ord('t'):
+        #    print('Clear Board - Press (c)ontinue')
+        #    patches = []
+        #    while True:
+        #        ret, img_c = webcam.read()
+        #        img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
+        #        last_key = cv2.waitKey(1) 
 
-                if not BOARD.hasEstimate:
-                    print("Calibrate the Board first!")
-                    break
+        #        if not BOARD.hasEstimate:
+        #            print("Calibrate the Board first!")
+        #            break
 
-                if last_key == ord('c'):
-                    patches = BOARD.extractOnPoints(img)
-                    PatchClassifier.train(patches)
-                    PatchClassifier.store()
-                    break
+        #        if last_key == ord('c'):
+        #            patches = BOARD.extractOnPoints(img)
+        #            PatchClassifier.train(patches)
+        #            PatchClassifier.store()
+        #            break
         
-        elif last_key == ord('n'):
-            print('New Game started')
-            GS.startNewGame(19)
+        #elif last_key == ord('n'):
+        #elif last_key == ord('a'):
+        #    print('Live Gama analysis')
+        #    addr = input('Server Address: default[127.0.0.1:8888]') or 'localhost:8888'
+        #    addr = addr.split(':')
+        #    net_addr = (addr[0], int(addr[1]))
+        #    KATRAIN = Client(net_addr, authkey=b'katrain')
+        #    print('Connected to Katrain')
 
-        elif last_key == ord('a'):
-            print('Live Game analysis')
-            addr = input('Server Address: default[127.0.0.1:8888]') or 'localhost:8888'
-            addr = addr.split(':')
-            net_addr = (addr[0], int(addr[1]))
-            KATRAIN = Client(net_addr, authkey=b'katrain')
-            print('Connected to Katrain')
+        #elif last_key == ord('f'):
+        #    print('Game finished')
+        #    GS.endGame()
+        #    if KATRAIN is not None:
+        #        KATRAIN.close()
 
-        elif last_key == ord('f'):
-            print('Game finished')
-            GS.endGame()
-            if KATRAIN is not None:
-                KATRAIN.close()
-
-        elif last_key == ord('q'):
-            print('Good Bye!')
-            if GS.GS == GameState.RUNNING:
-                GS.endGame()
-            if KATRAIN is not None:
-                KATRAIN.close()
-            break
+        #elif last_key == ord('q'):
+        #    print('Good Bye!')
+        #    if GS.GS == GameState.RUNNING:
+        #        GS.endGame()
+        #    if KATRAIN is not None:
+        #        KATRAIN.close()
+        #    break
         
         if BOARD.hasEstimate:
+            pdb.set_trace()
             img = BOARD.extract(img)
-
             if not MD.hasMotion(img):
                 if PatchClassifier.hasWeights:
                     val = PatchClassifier.predict(BOARD.imgToPatches(img))

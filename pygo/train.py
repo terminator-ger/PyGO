@@ -1,28 +1,21 @@
-from numpy.lib.shape_base import expand_dims
-import sklearn
-import cv2
-import os
-import numpy as np
-from skimage import data, color, img_as_ubyte, exposure, transform, img_as_float
-from skimage.feature import canny, hog, corner_harris, corner_subpix, corner_peaks
-from skimage.measure import label, regionprops
 import pdb
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.svm import SVC
-from sklearn.metrics import classification_report, f1_score
-from joblib import dump, load
-import imgaug as ia
-import imgaug.augmenters as iaa
-from feature import get_feat_vec
-from src.GoNet import GoNet
-import torch as th
-import torch.nn.functional as F
-import torchvision
-from tqdm import tqdm
 
 import warnings
 warnings.filterwarnings('always') 
+
+from numpy.lib.shape_base import expand_dims
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import classification_report, f1_score
+
+from feature import get_feat_vec
+from GoNet import GoNet
+from pygo_utils import load_training_data
+
+import torch as th
+import torch.nn.functional as F
+
+
 def toNP(x):
     return x.detach().cpu().numpy()
 
@@ -35,17 +28,19 @@ if __name__ == '__main__':
 
     classes = [0,1,2]
     channels = 1
-    data = []
-    label = []
-
+    data, label = load_training_data(classes)
+    
     model = GoNet()
     idx = np.arange(len(data))
     np.random.shuffle(idx)
 
     # shuffle
     data = np.array(data)
+    label = np.array(label)
     data = data[idx]
+    label = label[idx]
     X = np.array(data)
+    y = np.array(label)
 
     X = np.expand_dims(X, -1)
     y = to_categorical(y, 3)
@@ -61,7 +56,6 @@ if __name__ == '__main__':
     X_test  = X[-SPLT:]
     y_test  = y[-SPLT:]
     
-
     X_train = th.from_numpy(X_train.astype(np.float32))
     y_train = th.from_numpy(y_train.astype(np.int_))
     X_test  = th.from_numpy(X_test.astype(np.float32))

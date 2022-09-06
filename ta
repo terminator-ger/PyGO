@@ -1,0 +1,961 @@
+[1mdiff --git a/main.py b/main.py[m
+[1mindex b09379b..90a1e10 100755[m
+[1m--- a/main.py[m
+[1m+++ b/main.py[m
+[36m@@ -447,7 +447,10 @@[m [mdef mask_board(image, go_board):[m
+                         go[18,0]]).reshape(-1,1,2).astype(int)[m
+     mask = cv2.fillConvexPoly(mask, corners, (255,255,255))[m
+     mask = cv2.dilate(mask, np.ones((3,3)), iterations=15)[m
+[31m-    rect = cv2.boundingRect(cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY))               # function that computes the rectangle of interest[m
+[32m+[m[32m    if len(mask.shape) == 3:[m[41m[m
+[32m+[m[32m        rect = cv2.boundingRect(cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY))               # function that computes the rectangle of interest[m[41m[m
+[32m+[m[32m    else:[m[41m[m
+[32m+[m[32m        rect = cv2.boundingRect(mask)[m[41m[m
+     x,y,w,h = rect[m
+     cropped_img = image[y:y+h, x:x+w].copy()[m
+     return cropped_img, (x,y)[m
+[36m@@ -464,34 +467,42 @@[m [mif __name__ == '__main__':[m
+     webcam.set(cv2.CAP_PROP_BUFFERSIZE, 1)[m
+     cx = intr[0,2][m
+     cy = intr[1,2][m
+[31m-    gmm = load('gmm.joblib')[m
+[31m-    SVM = load('train/svm.joblib')[m
+[32m+[m[32m    #gmm = load('gmm.joblib')[m[41m[m
+[32m+[m[32m    #SVM = load('train/svm.joblib')[m[41m[m
+     GoNet = th.load('train/weights.pt')[m
+[32m+[m[32m    #GoNet = th.load('train/mobile_weights_5_1.0.pt')[m[41m[m
+ [m
+     print("Estimating Homography")[m
+     vps_list_1 = [][m
+     vps_list_2 = [][m
+ [m
+     print('Align Camera - press (c)ontinue')[m
+[31m-    img_buf = collections.deque(maxlen=1)[m
+[32m+[m[32m    img_buf = collections.deque(maxlen=3)[m[41m[m
+[32m+[m[32m    filtered = collections.deque(maxlen=1)[m[41m[m
+     while True:[m
+         ret, img_c = webcam.read()[m
+[32m+[m[32m        img_c = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)[m[41m[m
+         img_buf.append(img_c)[m
+[31m-        cv2.imshow('PyGO',img_c)[m
+[31m-        if cv2.waitKey(1) & 0xFF == ord('c'):[m
+[31m-            break[m
+[32m+[m[32m        if len(img_buf) % 2 != 0:[m[41m[m
+[32m+[m[32m            img_c = cv2.fastNlMeansDenoisingMulti(img_buf, len(img_buf)//2, len(img_buf), None, 4, 7, 35)[m[41m[m
+[32m+[m[32m            filtered.append(img_c)[m[41m[m
+[32m+[m[32m            cv2.imshow('PyGO',img_c)[m[41m[m
+[32m+[m[32m            if cv2.waitKey(1) & 0xFF == ord('c'):[m[41m[m
+[32m+[m[32m                break[m[41m[m
+           [m
+     #for i in tqdm(range(30)):[m
+         #ret, img_c = webcam.read()[m
+     [m
+     vp = VPDetection(focal_length=intr[0,0], principal_point=(cx,cy), length_thresh=20)[m
+     lines_vp = [][m
+[31m-    for img_c in tqdm(img_buf):[m
+[32m+[m[32m    for img_c in tqdm(filtered):[m[41m[m
+         #/cv2.imwrite('white.png',img_c)[m
+         # gather initial vps to determine stable vps[m
+         if ret:[m
+             if len(img_c.shape) == 3:[m
+                 img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)[m
+[32m+[m[32m            else:[m[41m[m
+[32m+[m[32m                img = img_c[m[41m[m
+             h,w = img.shape[m
+             van_points = vp.find_vps(img)[m
+             #vpd = vp.create_debug_VP_image()[m
+[36m@@ -593,10 +604,16 @@[m [mif __name__ == '__main__':[m
+ [m
+     while(True):[m
+         ret, img_c = webcam.read()[m
+[32m+[m[32m        img_c = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)[m[41m[m
+[32m+[m[32m        img_buf.append(img_c)[m[41m[m
+[32m+[m[32m        if len(img_buf) % 2 != 0:[m[41m[m
+[32m+[m[32m            img_c = cv2.fastNlMeansDenoisingMulti(img_buf, len(img_buf)//2, len(img_buf), None, 4, 7, 35)[m[41m[m
+[32m+[m[32m            filtered.append(img_c)[m[41m[m
+ [m
+[31m-        img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)[m
+[31m-        img_float = img/255.0[m
+[31m-        if ret:[m
+[32m+[m[32m        if len(filtered) == 1:[m[41m[m
+[32m+[m[32m            img = filtered[-1][m[41m[m
+[32m+[m[32m            img_float = img/255.0[m[41m[m
+[32m+[m[41m [m
+   #          cl2 = _tform(go_circle_left,  R, np.eye(3))[m
+   #          cr2 = _tform(go_circle_right, R, np.eye(3))[m
+   #          ct2 = _tform(go_circle_top,   R, np.eye(3))[m
+[36m@@ -659,4 +676,4 @@[m [mif __name__ == '__main__':[m
+             [m
+ # When everything done, release the capture[m
+ webcam.release()[m
+[31m-cv2.destroyAllWindows()[m
+\ No newline at end of file[m
+[32m+[m[32mcv2.destroyAllWindows()[m[41m[m
+[1mdiff --git a/train/__pycache__/GoNet.cpython-38.pyc b/train/__pycache__/GoNet.cpython-38.pyc[m
+[1mindex 2dfd5e3..fa3e6b1 100644[m
+Binary files a/train/__pycache__/GoNet.cpython-38.pyc and b/train/__pycache__/GoNet.cpython-38.pyc differ
+[1mdiff --git a/train/train.py b/train/train.py[m
+[1mindex 4f02fe6..a4bdf3b 100755[m
+[1m--- a/train/train.py[m
+[1m+++ b/train/train.py[m
+[36m@@ -81,7 +81,7 @@[m [mif __name__ == '__main__':[m
+     data = np.array(data)[m
+     data = data[idx][m
+     X = np.array(data)[m
+[31m-    pdb.set_trace()[m
+[32m+[m[41m[m
+     X = np.expand_dims(X, -1)[m
+     y = to_categorical(y, 3)[m
+ [m
+[1mdiff --git a/train/weights.pt b/train/weights.pt[m
+[1mdeleted file mode 100755[m
+[1mindex 80a26e3..0000000[m
+Binary files a/train/weights.pt and /dev/null differ
+[1mdiff --git a/train/weights_0_0.08.pt b/train/weights_0_0.08.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 8fdf268..0000000[m
+Binary files a/train/weights_0_0.08.pt and /dev/null differ
+[1mdiff --git a/train/weights_0_0.52.pt b/train/weights_0_0.52.pt[m
+[1mdeleted file mode 100644[m
+[1mindex fb60596..0000000[m
+Binary files a/train/weights_0_0.52.pt and /dev/null differ
+[1mdiff --git a/train/weights_100_0.8399999999999999.pt b/train/weights_100_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex d1f0ac9..0000000[m
+Binary files a/train/weights_100_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_100_0.89.pt b/train/weights_100_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 80e18f0..0000000[m
+Binary files a/train/weights_100_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_100_0.9.pt b/train/weights_100_0.9.pt[m
+[1mdeleted file mode 100644[m
+[1mindex b389ced..0000000[m
+Binary files a/train/weights_100_0.9.pt and /dev/null differ
+[1mdiff --git a/train/weights_105_0.8399999999999999.pt b/train/weights_105_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 5936f44..0000000[m
+Binary files a/train/weights_105_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_105_0.89.pt b/train/weights_105_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 52d509c..0000000[m
+Binary files a/train/weights_105_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_105_0.9.pt b/train/weights_105_0.9.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 76f54f8..0000000[m
+Binary files a/train/weights_105_0.9.pt and /dev/null differ
+[1mdiff --git a/train/weights_10_0.8399999999999999.pt b/train/weights_10_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex b3d7d02..0000000[m
+Binary files a/train/weights_10_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_10_0.8599999999999999.pt b/train/weights_10_0.8599999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 22fe9d4..0000000[m
+Binary files a/train/weights_10_0.8599999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_10_0.89.pt b/train/weights_10_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 65358ca..0000000[m
+Binary files a/train/weights_10_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_110_0.8399999999999999.pt b/train/weights_110_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex b4e0d8d..0000000[m
+Binary files a/train/weights_110_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_110_0.89.pt b/train/weights_110_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 6c1aba4..0000000[m
+Binary files a/train/weights_110_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_110_0.9.pt b/train/weights_110_0.9.pt[m
+[1mdeleted file mode 100644[m
+[1mindex c5b5b58..0000000[m
+Binary files a/train/weights_110_0.9.pt and /dev/null differ
+[1mdiff --git a/train/weights_115_0.8399999999999999.pt b/train/weights_115_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex beb26b7..0000000[m
+Binary files a/train/weights_115_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_115_0.89.pt b/train/weights_115_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex e7f6fb2..0000000[m
+Binary files a/train/weights_115_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_115_0.9.pt b/train/weights_115_0.9.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 443002e..0000000[m
+Binary files a/train/weights_115_0.9.pt and /dev/null differ
+[1mdiff --git a/train/weights_120_0.8399999999999999.pt b/train/weights_120_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex dc4df52..0000000[m
+Binary files a/train/weights_120_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_120_0.89.pt b/train/weights_120_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex c8a5c19..0000000[m
+Binary files a/train/weights_120_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_120_0.9.pt b/train/weights_120_0.9.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 358881c..0000000[m
+Binary files a/train/weights_120_0.9.pt and /dev/null differ
+[1mdiff --git a/train/weights_125_0.8399999999999999.pt b/train/weights_125_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 43d6007..0000000[m
+Binary files a/train/weights_125_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_125_0.89.pt b/train/weights_125_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex b2a4530..0000000[m
+Binary files a/train/weights_125_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_125_0.91.pt b/train/weights_125_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex bb381ad..0000000[m
+Binary files a/train/weights_125_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_130_0.8399999999999999.pt b/train/weights_130_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex ab67689..0000000[m
+Binary files a/train/weights_130_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_130_0.89.pt b/train/weights_130_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex fa702b5..0000000[m
+Binary files a/train/weights_130_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_130_0.91.pt b/train/weights_130_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 067a626..0000000[m
+Binary files a/train/weights_130_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_135_0.8399999999999999.pt b/train/weights_135_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex d75df8c..0000000[m
+Binary files a/train/weights_135_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_135_0.89.pt b/train/weights_135_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex c240a53..0000000[m
+Binary files a/train/weights_135_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_135_0.91.pt b/train/weights_135_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex a93195f..0000000[m
+Binary files a/train/weights_135_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_140_0.8399999999999999.pt b/train/weights_140_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 2466542..0000000[m
+Binary files a/train/weights_140_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_140_0.89.pt b/train/weights_140_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 53a0070..0000000[m
+Binary files a/train/weights_140_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_140_0.91.pt b/train/weights_140_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 39b6b7e..0000000[m
+Binary files a/train/weights_140_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_145_0.8399999999999999.pt b/train/weights_145_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 731d981..0000000[m
+Binary files a/train/weights_145_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_145_0.89.pt b/train/weights_145_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex b3f3400..0000000[m
+Binary files a/train/weights_145_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_145_0.91.pt b/train/weights_145_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex ed431f7..0000000[m
+Binary files a/train/weights_145_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_150_0.8399999999999999.pt b/train/weights_150_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex c03dbe6..0000000[m
+Binary files a/train/weights_150_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_150_0.89.pt b/train/weights_150_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex e77700f..0000000[m
+Binary files a/train/weights_150_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_150_0.91.pt b/train/weights_150_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex dd4a4f8..0000000[m
+Binary files a/train/weights_150_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_155_0.8399999999999999.pt b/train/weights_155_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 3001fdc..0000000[m
+Binary files a/train/weights_155_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_155_0.89.pt b/train/weights_155_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 4086574..0000000[m
+Binary files a/train/weights_155_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_155_0.91.pt b/train/weights_155_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 2a95da9..0000000[m
+Binary files a/train/weights_155_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_15_0.8399999999999999.pt b/train/weights_15_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 18c540d..0000000[m
+Binary files a/train/weights_15_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_15_0.85.pt b/train/weights_15_0.85.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 8375673..0000000[m
+Binary files a/train/weights_15_0.85.pt and /dev/null differ
+[1mdiff --git a/train/weights_15_0.89.pt b/train/weights_15_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 70f7dcb..0000000[m
+Binary files a/train/weights_15_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_160_0.8399999999999999.pt b/train/weights_160_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex fdfd139..0000000[m
+Binary files a/train/weights_160_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_160_0.89.pt b/train/weights_160_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 2ece723..0000000[m
+Binary files a/train/weights_160_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_160_0.91.pt b/train/weights_160_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 72b5683..0000000[m
+Binary files a/train/weights_160_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_165_0.8399999999999999.pt b/train/weights_165_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 6860d6e..0000000[m
+Binary files a/train/weights_165_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_165_0.89.pt b/train/weights_165_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 0243c88..0000000[m
+Binary files a/train/weights_165_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_165_0.91.pt b/train/weights_165_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 5f7070e..0000000[m
+Binary files a/train/weights_165_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_170_0.8399999999999999.pt b/train/weights_170_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex a561764..0000000[m
+Binary files a/train/weights_170_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_170_0.89.pt b/train/weights_170_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex d6a9207..0000000[m
+Binary files a/train/weights_170_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_170_0.91.pt b/train/weights_170_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex f725fee..0000000[m
+Binary files a/train/weights_170_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_175_0.8399999999999999.pt b/train/weights_175_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 0509c46..0000000[m
+Binary files a/train/weights_175_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_175_0.89.pt b/train/weights_175_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 3e1f77f..0000000[m
+Binary files a/train/weights_175_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_175_0.91.pt b/train/weights_175_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex da996f1..0000000[m
+Binary files a/train/weights_175_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_180_0.8399999999999999.pt b/train/weights_180_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex cf88a4b..0000000[m
+Binary files a/train/weights_180_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_180_0.89.pt b/train/weights_180_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex ebbe20b..0000000[m
+Binary files a/train/weights_180_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_180_0.91.pt b/train/weights_180_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 2b1cf2b..0000000[m
+Binary files a/train/weights_180_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_185_0.8399999999999999.pt b/train/weights_185_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 5e6a889..0000000[m
+Binary files a/train/weights_185_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_185_0.89.pt b/train/weights_185_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 173ac15..0000000[m
+Binary files a/train/weights_185_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_185_0.91.pt b/train/weights_185_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 611c9ea..0000000[m
+Binary files a/train/weights_185_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_190_0.8399999999999999.pt b/train/weights_190_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 8ea5b2e..0000000[m
+Binary files a/train/weights_190_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_190_0.89.pt b/train/weights_190_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex ff59470..0000000[m
+Binary files a/train/weights_190_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_190_0.91.pt b/train/weights_190_0.91.pt[m
+[1mdeleted file mode 100644[m
+[1mindex a42ca7d..0000000[m
+Binary files a/train/weights_190_0.91.pt and /dev/null differ
+[1mdiff --git a/train/weights_195_0.8399999999999999.pt b/train/weights_195_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 7d2e5e4..0000000[m
+Binary files a/train/weights_195_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_195_0.89.pt b/train/weights_195_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 20588e2..0000000[m
+Binary files a/train/weights_195_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_195_0.92.pt b/train/weights_195_0.92.pt[m
+[1mdeleted file mode 100644[m
+[1mindex cf12ffa..0000000[m
+Binary files a/train/weights_195_0.92.pt and /dev/null differ
+[1mdiff --git a/train/weights_200_0.8399999999999999.pt b/train/weights_200_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 6d0df6f..0000000[m
+Binary files a/train/weights_200_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_200_0.89.pt b/train/weights_200_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 2f2df9a..0000000[m
+Binary files a/train/weights_200_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_200_0.92.pt b/train/weights_200_0.92.pt[m
+[1mdeleted file mode 100644[m
+[1mindex c17338d..0000000[m
+Binary files a/train/weights_200_0.92.pt and /dev/null differ
+[1mdiff --git a/train/weights_205_0.8399999999999999.pt b/train/weights_205_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 45d357d..0000000[m
+Binary files a/train/weights_205_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_205_0.89.pt b/train/weights_205_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 339198a..0000000[m
+Binary files a/train/weights_205_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_205_0.92.pt b/train/weights_205_0.92.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 707a4b1..0000000[m
+Binary files a/train/weights_205_0.92.pt and /dev/null differ
+[1mdiff --git a/train/weights_20_0.8399999999999999.pt b/train/weights_20_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex f422057..0000000[m
+Binary files a/train/weights_20_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_20_0.85.pt b/train/weights_20_0.85.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 3c0c198..0000000[m
+Binary files a/train/weights_20_0.85.pt and /dev/null differ
+[1mdiff --git a/train/weights_20_0.89.pt b/train/weights_20_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 690e372..0000000[m
+Binary files a/train/weights_20_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_210_0.8399999999999999.pt b/train/weights_210_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 1ba8f4b..0000000[m
+Binary files a/train/weights_210_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_210_0.89.pt b/train/weights_210_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex d38516f..0000000[m
+Binary files a/train/weights_210_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_210_0.92.pt b/train/weights_210_0.92.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 3efe784..0000000[m
+Binary files a/train/weights_210_0.92.pt and /dev/null differ
+[1mdiff --git a/train/weights_215_0.8399999999999999.pt b/train/weights_215_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 63a12e6..0000000[m
+Binary files a/train/weights_215_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_215_0.89.pt b/train/weights_215_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex dca1203..0000000[m
+Binary files a/train/weights_215_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_215_0.92.pt b/train/weights_215_0.92.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 2ab27e7..0000000[m
+Binary files a/train/weights_215_0.92.pt and /dev/null differ
+[1mdiff --git a/train/weights_220_0.8399999999999999.pt b/train/weights_220_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 705c6eb..0000000[m
+Binary files a/train/weights_220_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_220_0.89.pt b/train/weights_220_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 1b3e9fd..0000000[m
+Binary files a/train/weights_220_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_220_0.93.pt b/train/weights_220_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex d4ca1a5..0000000[m
+Binary files a/train/weights_220_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_225_0.8399999999999999.pt b/train/weights_225_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 1082990..0000000[m
+Binary files a/train/weights_225_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_225_0.89.pt b/train/weights_225_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 9d46d7b..0000000[m
+Binary files a/train/weights_225_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_225_0.93.pt b/train/weights_225_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex baf3ffd..0000000[m
+Binary files a/train/weights_225_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_230_0.8399999999999999.pt b/train/weights_230_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 557f320..0000000[m
+Binary files a/train/weights_230_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_230_0.89.pt b/train/weights_230_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 1bfd9c7..0000000[m
+Binary files a/train/weights_230_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_230_0.93.pt b/train/weights_230_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 4b8cfba..0000000[m
+Binary files a/train/weights_230_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_235_0.8399999999999999.pt b/train/weights_235_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex c653440..0000000[m
+Binary files a/train/weights_235_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_235_0.89.pt b/train/weights_235_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 52b72ce..0000000[m
+Binary files a/train/weights_235_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_235_0.93.pt b/train/weights_235_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex efab5a0..0000000[m
+Binary files a/train/weights_235_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_240_0.8399999999999999.pt b/train/weights_240_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex c4080ac..0000000[m
+Binary files a/train/weights_240_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_240_0.89.pt b/train/weights_240_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex b37131a..0000000[m
+Binary files a/train/weights_240_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_240_0.93.pt b/train/weights_240_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex cefbc8f..0000000[m
+Binary files a/train/weights_240_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_245_0.8399999999999999.pt b/train/weights_245_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 0419620..0000000[m
+Binary files a/train/weights_245_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_245_0.89.pt b/train/weights_245_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex fde4bcf..0000000[m
+Binary files a/train/weights_245_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_245_0.93.pt b/train/weights_245_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 5fd836d..0000000[m
+Binary files a/train/weights_245_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_250_0.8399999999999999.pt b/train/weights_250_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 6015499..0000000[m
+Binary files a/train/weights_250_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_250_0.89.pt b/train/weights_250_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex d64e6f9..0000000[m
+Binary files a/train/weights_250_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_250_0.93.pt b/train/weights_250_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 5813163..0000000[m
+Binary files a/train/weights_250_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_255_0.8399999999999999.pt b/train/weights_255_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 4e5ce44..0000000[m
+Binary files a/train/weights_255_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_255_0.89.pt b/train/weights_255_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 29c2055..0000000[m
+Binary files a/train/weights_255_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_255_0.93.pt b/train/weights_255_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex cb3deb4..0000000[m
+Binary files a/train/weights_255_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_25_0.8399999999999999.pt b/train/weights_25_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 16e5aab..0000000[m
+Binary files a/train/weights_25_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_25_0.85.pt b/train/weights_25_0.85.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 024f410..0000000[m
+Binary files a/train/weights_25_0.85.pt and /dev/null differ
+[1mdiff --git a/train/weights_25_0.89.pt b/train/weights_25_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 9066572..0000000[m
+Binary files a/train/weights_25_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_260_0.8399999999999999.pt b/train/weights_260_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex cc3ccce..0000000[m
+Binary files a/train/weights_260_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_260_0.89.pt b/train/weights_260_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 35de2da..0000000[m
+Binary files a/train/weights_260_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_260_0.93.pt b/train/weights_260_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 0a9e213..0000000[m
+Binary files a/train/weights_260_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_265_0.8399999999999999.pt b/train/weights_265_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 82d17ad..0000000[m
+Binary files a/train/weights_265_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_265_0.89.pt b/train/weights_265_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex ca404b6..0000000[m
+Binary files a/train/weights_265_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_265_0.93.pt b/train/weights_265_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 3daaa10..0000000[m
+Binary files a/train/weights_265_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_270_0.8399999999999999.pt b/train/weights_270_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 9a36c78..0000000[m
+Binary files a/train/weights_270_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_270_0.89.pt b/train/weights_270_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex e8b025c..0000000[m
+Binary files a/train/weights_270_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_270_0.93.pt b/train/weights_270_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex ad17f87..0000000[m
+Binary files a/train/weights_270_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_275_0.8399999999999999.pt b/train/weights_275_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 6497437..0000000[m
+Binary files a/train/weights_275_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_275_0.89.pt b/train/weights_275_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 88f9dd1..0000000[m
+Binary files a/train/weights_275_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_275_0.93.pt b/train/weights_275_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 5308ccd..0000000[m
+Binary files a/train/weights_275_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_280_0.8399999999999999.pt b/train/weights_280_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 95eba8c..0000000[m
+Binary files a/train/weights_280_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_280_0.89.pt b/train/weights_280_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 67fe77f..0000000[m
+Binary files a/train/weights_280_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_280_0.93.pt b/train/weights_280_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 7cdf780..0000000[m
+Binary files a/train/weights_280_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_285_0.8399999999999999.pt b/train/weights_285_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex cdaa9c1..0000000[m
+Binary files a/train/weights_285_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_285_0.89.pt b/train/weights_285_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex d2153a5..0000000[m
+Binary files a/train/weights_285_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_285_0.93.pt b/train/weights_285_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 00ec443..0000000[m
+Binary files a/train/weights_285_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_290_0.8399999999999999.pt b/train/weights_290_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex f94d958..0000000[m
+Binary files a/train/weights_290_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_290_0.89.pt b/train/weights_290_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex b49afcd..0000000[m
+Binary files a/train/weights_290_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_290_0.93.pt b/train/weights_290_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 6e53363..0000000[m
+Binary files a/train/weights_290_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_295_0.8399999999999999.pt b/train/weights_295_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 6e424d6..0000000[m
+Binary files a/train/weights_295_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_295_0.89.pt b/train/weights_295_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 834a221..0000000[m
+Binary files a/train/weights_295_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_295_0.94.pt b/train/weights_295_0.94.pt[m
+[1mdeleted file mode 100644[m
+[1mindex a8c75a7..0000000[m
+Binary files a/train/weights_295_0.94.pt and /dev/null differ
+[1mdiff --git a/train/weights_300_0.8399999999999999.pt b/train/weights_300_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex ef78206..0000000[m
+Binary files a/train/weights_300_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_300_0.89.pt b/train/weights_300_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 7770a20..0000000[m
+Binary files a/train/weights_300_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_300_0.94.pt b/train/weights_300_0.94.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 2eb314d..0000000[m
+Binary files a/train/weights_300_0.94.pt and /dev/null differ
+[1mdiff --git a/train/weights_305_0.8399999999999999.pt b/train/weights_305_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 40e7723..0000000[m
+Binary files a/train/weights_305_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_305_0.89.pt b/train/weights_305_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 537acf2..0000000[m
+Binary files a/train/weights_305_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_305_0.93.pt b/train/weights_305_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex a0937f6..0000000[m
+Binary files a/train/weights_305_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_30_0.8399999999999999.pt b/train/weights_30_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 213a9f8..0000000[m
+Binary files a/train/weights_30_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_30_0.87.pt b/train/weights_30_0.87.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 63de248..0000000[m
+Binary files a/train/weights_30_0.87.pt and /dev/null differ
+[1mdiff --git a/train/weights_30_0.89.pt b/train/weights_30_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 8edf2f6..0000000[m
+Binary files a/train/weights_30_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_310_0.8399999999999999.pt b/train/weights_310_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 0f21575..0000000[m
+Binary files a/train/weights_310_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_310_0.92.pt b/train/weights_310_0.92.pt[m
+[1mdeleted file mode 100644[m
+[1mindex ac3a210..0000000[m
+Binary files a/train/weights_310_0.92.pt and /dev/null differ
+[1mdiff --git a/train/weights_315_0.8399999999999999.pt b/train/weights_315_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex d206e85..0000000[m
+Binary files a/train/weights_315_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_315_0.93.pt b/train/weights_315_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 701cdd1..0000000[m
+Binary files a/train/weights_315_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_320_0.8399999999999999.pt b/train/weights_320_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 7ca2d01..0000000[m
+Binary files a/train/weights_320_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_320_0.93.pt b/train/weights_320_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 7762904..0000000[m
+Binary files a/train/weights_320_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_325_0.8399999999999999.pt b/train/weights_325_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex a2432bd..0000000[m
+Binary files a/train/weights_325_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_325_0.94.pt b/train/weights_325_0.94.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 7e5391b..0000000[m
+Binary files a/train/weights_325_0.94.pt and /dev/null differ
+[1mdiff --git a/train/weights_330_0.8399999999999999.pt b/train/weights_330_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 11f2a94..0000000[m
+Binary files a/train/weights_330_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_330_0.93.pt b/train/weights_330_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 55e9fbd..0000000[m
+Binary files a/train/weights_330_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_335_0.8399999999999999.pt b/train/weights_335_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 9eadf53..0000000[m
+Binary files a/train/weights_335_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_335_0.93.pt b/train/weights_335_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 0fd2cb5..0000000[m
+Binary files a/train/weights_335_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_340_0.8399999999999999.pt b/train/weights_340_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 87112da..0000000[m
+Binary files a/train/weights_340_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_340_0.94.pt b/train/weights_340_0.94.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 7bb9d9e..0000000[m
+Binary files a/train/weights_340_0.94.pt and /dev/null differ
+[1mdiff --git a/train/weights_345_0.8399999999999999.pt b/train/weights_345_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex f7410c5..0000000[m
+Binary files a/train/weights_345_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_345_0.92.pt b/train/weights_345_0.92.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 37337d9..0000000[m
+Binary files a/train/weights_345_0.92.pt and /dev/null differ
+[1mdiff --git a/train/weights_350_0.8399999999999999.pt b/train/weights_350_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 4829eba..0000000[m
+Binary files a/train/weights_350_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_350_0.9500000000000001.pt b/train/weights_350_0.9500000000000001.pt[m
+[1mdeleted file mode 100644[m
+[1mindex c8a5871..0000000[m
+Binary files a/train/weights_350_0.9500000000000001.pt and /dev/null differ
+[1mdiff --git a/train/weights_355_0.8399999999999999.pt b/train/weights_355_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 9f04966..0000000[m
+Binary files a/train/weights_355_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_355_0.9500000000000001.pt b/train/weights_355_0.9500000000000001.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 97616ec..0000000[m
+Binary files a/train/weights_355_0.9500000000000001.pt and /dev/null differ
+[1mdiff --git a/train/weights_35_0.8399999999999999.pt b/train/weights_35_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex d100dce..0000000[m
+Binary files a/train/weights_35_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_35_0.8599999999999999.pt b/train/weights_35_0.8599999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 702d7d2..0000000[m
+Binary files a/train/weights_35_0.8599999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_35_0.89.pt b/train/weights_35_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex b448616..0000000[m
+Binary files a/train/weights_35_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_360_0.85.pt b/train/weights_360_0.85.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 8ffe5bc..0000000[m
+Binary files a/train/weights_360_0.85.pt and /dev/null differ
+[1mdiff --git a/train/weights_360_0.94.pt b/train/weights_360_0.94.pt[m
+[1mdeleted file mode 100644[m
+[1mindex cce0c4f..0000000[m
+Binary files a/train/weights_360_0.94.pt and /dev/null differ
+[1mdiff --git a/train/weights_365_0.8599999999999999.pt b/train/weights_365_0.8599999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex d461436..0000000[m
+Binary files a/train/weights_365_0.8599999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_365_0.93.pt b/train/weights_365_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex deb9b08..0000000[m
+Binary files a/train/weights_365_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_370_0.87.pt b/train/weights_370_0.87.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 6e35107..0000000[m
+Binary files a/train/weights_370_0.87.pt and /dev/null differ
+[1mdiff --git a/train/weights_370_0.93.pt b/train/weights_370_0.93.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 3a39c2c..0000000[m
+Binary files a/train/weights_370_0.93.pt and /dev/null differ
+[1mdiff --git a/train/weights_375_0.9.pt b/train/weights_375_0.9.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 3d43ef4..0000000[m
+Binary files a/train/weights_375_0.9.pt and /dev/null differ
+[1mdiff --git a/train/weights_375_0.94.pt b/train/weights_375_0.94.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 66c829f..0000000[m
+Binary files a/train/weights_375_0.94.pt and /dev/null differ
+[1mdiff --git a/train/weights_380_0.92.pt b/train/weights_380_0.92.pt[m
+[1mdeleted file mode 100644[m
+[1mindex eae66a8..0000000[m
+Binary files a/train/weights_380_0.92.pt and /dev/null differ
+[1mdiff --git a/train/weights_380_0.9500000000000001.pt b/train/weights_380_0.9500000000000001.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 4afd506..0000000[m
+Binary files a/train/weights_380_0.9500000000000001.pt and /dev/null differ
+[1mdiff --git a/train/weights_385_0.9.pt b/train/weights_385_0.9.pt[m
+[1mdeleted file mode 100644[m
+[1mindex be913f0..0000000[m
+Binary files a/train/weights_385_0.9.pt and /dev/null differ
+[1mdiff --git a/train/weights_385_0.9500000000000001.pt b/train/weights_385_0.9500000000000001.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 58aac1d..0000000[m
+Binary files a/train/weights_385_0.9500000000000001.pt and /dev/null differ
+[1mdiff --git a/train/weights_390_0.9.pt b/train/weights_390_0.9.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 52a4e69..0000000[m
+Binary files a/train/weights_390_0.9.pt and /dev/null differ
+[1mdiff --git a/train/weights_390_0.9500000000000001.pt b/train/weights_390_0.9500000000000001.pt[m
+[1mdeleted file mode 100644[m
+[1mindex dd377bf..0000000[m
+Binary files a/train/weights_390_0.9500000000000001.pt and /dev/null differ
+[1mdiff --git a/train/weights_395_0.9.pt b/train/weights_395_0.9.pt[m
+[1mdeleted file mode 100644[m
+[1mindex d9fa700..0000000[m
+Binary files a/train/weights_395_0.9.pt and /dev/null differ
+[1mdiff --git a/train/weights_40_0.8399999999999999.pt b/train/weights_40_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 45781a4..0000000[m
+Binary files a/train/weights_40_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_40_0.8599999999999999.pt b/train/weights_40_0.8599999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 603fb25..0000000[m
+Binary files a/train/weights_40_0.8599999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_40_0.89.pt b/train/weights_40_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex b29f63d..0000000[m
+Binary files a/train/weights_40_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_45_0.8399999999999999.pt b/train/weights_45_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex ff9a7a9..0000000[m
+Binary files a/train/weights_45_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_45_0.88.pt b/train/weights_45_0.88.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 5ffb330..0000000[m
+Binary files a/train/weights_45_0.88.pt and /dev/null differ
+[1mdiff --git a/train/weights_45_0.89.pt b/train/weights_45_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 89bcf28..0000000[m
+Binary files a/train/weights_45_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_50_0.8399999999999999.pt b/train/weights_50_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex b84fc35..0000000[m
+Binary files a/train/weights_50_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_50_0.89.pt b/train/weights_50_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 9793b44..0000000[m
+Binary files a/train/weights_50_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_55_0.8399999999999999.pt b/train/weights_55_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex a906f5c..0000000[m
+Binary files a/train/weights_55_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_55_0.89.pt b/train/weights_55_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 002df31..0000000[m
+Binary files a/train/weights_55_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_55_0.9.pt b/train/weights_55_0.9.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 4bf5bc1..0000000[m
+Binary files a/train/weights_55_0.9.pt and /dev/null differ
+[1mdiff --git a/train/weights_5_0.8399999999999999.pt b/train/weights_5_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex edd5a87..0000000[m
+Binary files a/train/weights_5_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_60_0.8399999999999999.pt b/train/weights_60_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex b523615..0000000[m
+Binary files a/train/weights_60_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_60_0.88.pt b/train/weights_60_0.88.pt[m
+[1mdeleted file mode 100644[m
+[1mindex a47a6ea..0000000[m
+Binary files a/train/weights_60_0.88.pt and /dev/null differ
+[1mdiff --git a/train/weights_60_0.89.pt b/train/weights_60_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 3947928..0000000[m
+Binary files a/train/weights_60_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_65_0.8399999999999999.pt b/train/weights_65_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 320d870..0000000[m
+Binary files a/train/weights_65_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_65_0.89.pt b/train/weights_65_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 0ccb6cd..0000000[m
+Binary files a/train/weights_65_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_70_0.8399999999999999.pt b/train/weights_70_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 08735f5..0000000[m
+Binary files a/train/weights_70_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_70_0.89.pt b/train/weights_70_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 1dfe32f..0000000[m
+Binary files a/train/weights_70_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_75_0.8399999999999999.pt b/train/weights_75_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 6c32fa6..0000000[m
+Binary files a/train/weights_75_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_75_0.89.pt b/train/weights_75_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 3c98e12..0000000[m
+Binary files a/train/weights_75_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_80_0.8399999999999999.pt b/train/weights_80_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex fc2ee7a..0000000[m
+Binary files a/train/weights_80_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_80_0.89.pt b/train/weights_80_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 67f8b01..0000000[m
+Binary files a/train/weights_80_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_85_0.8399999999999999.pt b/train/weights_85_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 1fe9cdd..0000000[m
+Binary files a/train/weights_85_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_85_0.89.pt b/train/weights_85_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 0033243..0000000[m
+Binary files a/train/weights_85_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_90_0.8399999999999999.pt b/train/weights_90_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex ef4a0b2..0000000[m
+Binary files a/train/weights_90_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_90_0.89.pt b/train/weights_90_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 81416c0..0000000[m
+Binary files a/train/weights_90_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_90_0.9.pt b/train/weights_90_0.9.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 2395915..0000000[m
+Binary files a/train/weights_90_0.9.pt and /dev/null differ
+[1mdiff --git a/train/weights_95_0.8399999999999999.pt b/train/weights_95_0.8399999999999999.pt[m
+[1mdeleted file mode 100644[m
+[1mindex 957b0f6..0000000[m
+Binary files a/train/weights_95_0.8399999999999999.pt and /dev/null differ
+[1mdiff --git a/train/weights_95_0.89.pt b/train/weights_95_0.89.pt[m
+[1mdeleted file mode 100644[m
+[1mindex c585bac..0000000[m
+Binary files a/train/weights_95_0.89.pt and /dev/null differ
+[1mdiff --git a/train/weights_95_0.9.pt b/train/weights_95_0.9.pt[m
+[1mdeleted file mode 100644[m
+[1mindex c91233e..0000000[m
+Binary files a/train/weights_95_0.9.pt and /dev/null differ

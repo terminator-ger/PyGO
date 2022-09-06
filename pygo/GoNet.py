@@ -50,7 +50,7 @@ class GoNet(th.nn.Module):
     def __init__(self):
         super(GoNet, self).__init__()
         
-        self.conv0 = th.nn.Conv2d(1,  16, (3,3), padding=1)
+        self.conv0 = th.nn.Conv2d(3,  16, (3,3), padding=1)
 
         self.block0 = ResBlock(16, 32, stride=2)        
         self.block1 = ResBlock(32, 64, stride=1, dilation=2)        

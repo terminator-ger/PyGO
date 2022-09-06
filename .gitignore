@@ -1,0 +1,6 @@
+*.pt
+*.joblib
+*.sgf
+*.zip
+*.png
+__pycache__

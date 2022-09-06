@@ -1,13 +1,11 @@
 from __future__ import division 
-from sklearn.mixture import GaussianMixture
-from pylab import concatenate, normal
-import scipy.stats as stats
 import pdb
 import random
 from numpy.core.numeric import ones
 from tqdm import tqdm
 import cv2
 from icp import icp
+import math
 import numpy as np
 from pyELSD.pyELSD import PyELSD
 from lu_vp_detect import VPDetection
@@ -19,9 +17,6 @@ from skimage.exposure import equalize_hist
 from joblib import load, dump
 from sklearn.mixture import GaussianMixture
 from multiprocessing.connection import Client
-from pylab import *
-from scipy.optimize import curve_fit
-
 
 from skimage import data, color, img_as_ubyte, exposure, transform, img_as_float
 from skimage.feature import canny, hog, corner_harris, corner_subpix, corner_peaks
@@ -34,8 +29,11 @@ from skimage.segmentation import clear_border
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, square
 from skimage.color import label2rgb
+from feature import get_feat_vec
 from scipy.spatial import distance_matrix
+from GoNet import GoNet
 from sklearn.neighbors import KNeighborsClassifier
+from playsound import playsound
 import torch as th
 from numpy.lib.shape_base import expand_dims
 import sklearn
@@ -56,6 +54,7 @@ from sklearn.metrics import classification_report, f1_score
 from joblib import dump, load
 import imgaug as ia
 import imgaug.augmenters as iaa
+from feature import get_feat_vec
 import torch as th
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -69,11 +68,11 @@ import pdb
 from sklearn.linear_model import SGDClassifier
 import sys
 from time import time
-import argparse
 
 import numpy as np
 import matplotlib.pyplot as plt
-from classifier import GoClassifier
+from classifier import GoClassifier, HaarClassifier, IlluminanceClassifier
+from pygo_utils import toByteImage
 
 from dask import delayed
 
@@ -87,7 +86,6 @@ from skimage.feature import haar_like_feature
 from skimage.feature import haar_like_feature_coord
 from skimage.feature import draw_haar_like_feature
 
-from pygo_utils import toByteImage
 
 import sys
 sys.path.insert(0, './train')
@@ -95,10 +93,16 @@ sys.path.insert(0, './train')
 
 import warnings
 warnings.filterwarnings('always') 
+def toNP(x):
+    return x.detach().cpu().numpy()
 
 def to_categorical(y, num_classes):
     """ 1-hot encodes a tensor """
     return np.eye(num_classes, dtype='uint8')[y]
+
+
+def toNP(x):
+    return x.detach().cpu().numpy()
 
 def warp_lines(lines, H):
     ones = np.ones((lines.shape[0], 1))
@@ -253,57 +257,6 @@ def plot_circles2(img, c):
         img = cv2.circle(img, (int(c[i,0]),int(c[i,1])), radius=5, color=(255, 0, 0), thickness=1)
     return img
 
-
-def clear_bimodal(lines, image_height):
-    circ_dists = distance_matrix(lines, lines, 2)
-    dists = circ_dists
-    # sort by closes eight dists
-    N = 8
-    circ_dists_idx = np.argsort(circ_dists, axis=0)
-    circ_dists = np.sort(circ_dists, axis=0)
-    circ_dists = circ_dists[1:(1+N)]
-    # assumption is that the whole board is visible so the the max distances are w/19, h/19 and the board fills at least half the images height..
-    max_dist = image_height /19
-    min_dist = image_height/2 /19
-    circ_dists = circ_dists.reshape(-1,1)
-    circ_dists = np.delete(circ_dists, np.argwhere(circ_dists>max_dist))
-    circ_dists = np.delete(circ_dists, np.argwhere(circ_dists<min_dist))
-
-    f = np.ravel(circ_dists).astype(np.float)
-    f=f.reshape(-1,1)
-    # Determine parameters mu1, mu2, sigma1, sigma2, w1 and w2
-    gm = GaussianMixture(n_components=4, random_state=0).fit(f.reshape(-1,1))
-
-    mu = gm.means_
-    std = (gm.covariances_)
-    weights = gm.weights_
-    # discard wide distribution
-    for i in range(2):
-        delidx= np.argmin(weights)
-        mu  = np.delete(mu,  delidx)
-        std = np.delete(std, delidx)
-        weights   = np.delete(weights,   delidx)
-    #plt.hist(f, bins=100, histtype='bar', density=True, ec='red', alpha=0.5)
-
-    f_axis = f.copy().ravel()
-    f_axis.sort()
-    plt.hist(f, bins=100, histtype='bar', density=True, ec='red', alpha=0.5)
-    plt.plot(f_axis,weights[0]*stats.norm.pdf(f_axis,mu[0],np.sqrt(std[0])).ravel(), c='red')
-    plt.plot(f_axis,weights[1]*stats.norm.pdf(f_axis,mu[1],np.sqrt(std[1])).ravel(), c='red')
-    plt.rcParams['agg.path.chunksize'] = 10000
-    plt.grid()
-    plt.show()
-    # get index of matching points
-    idx0 = np.argwhere(np.abs(dists - mu[0]) < 1.2* std[0])
-    idx1 = np.argwhere(np.abs(dists - mu[1]) < 1.2* std[1])
-    idx = np.intersect1d(idx0,idx1)
-    lines_selected = lines[idx]
-    plt.scatter(lines_selected[:,0],lines_selected[:,1])
-    plt.show()
-
-    return lines_selected
-
-
 def clear(lines):
     # cluster x
     from scipy.spatial.distance import pdist
@@ -312,11 +265,10 @@ def clear(lines):
     circ_dists = distance_matrix(lines, lines, 2)
     x_data = lines[:,0]
     # sort by closes two dists
-    N = 8
+    N = 3
     circ_dists = np.sort(circ_dists, axis=0)
     circ_dists_idx = np.argsort(circ_dists, axis=0)
     circ_dists = circ_dists[1:(1+N)]
-    pdb.set_trace()
     med_dist = np.median(circ_dists)
     circ_dists = np.square(circ_dists-med_dist)
 
@@ -325,19 +277,17 @@ def clear(lines):
                                 linkage='single',
                                 distance_threshold=4)
     lblx = km.fit_predict(circ_dists.T)
-    plt.scatter(lines[:,0], lines[:,1], c=lblx)
-    plt.show()
-    pdb.set_trace()
-
+    #plt.scatter(lines[:,0], lines[:,1], c=lblx)
+    #plt.show()
     _, xcount = np.unique(lblx, return_counts=True)
     target_cluster = np.argmax(xcount)
     delx = np.argwhere(lblx != target_cluster)
     lines = np.delete(lines, delx, axis=0)
     lblx = np.delete(lblx, delx)
 
-    plt.scatter(lines[:,0], lines[:,1], c=lblx)
-    plt.show()
-    pdb.set_trace()
+    #plt.scatter(lines[:,0], lines[:,1], c=lblx)
+    #plt.show()
+    #pdb.set_trace()
    # x_data = lines[:,1]
    # lblx = km.fit_predict(x_data.reshape(-1,1))
    # #plt.scatter(lines[:,0], lines[:,1], c=lblx)
@@ -417,11 +367,6 @@ def cluster(x,y):
     #c.append(np.mean(arr[np.argwhere(cl==i),:], axis=0))
     c = [np.mean(arr[np.argwhere(cl==i),:], axis=0) for i in range(1,cl.max())]
     c = np.array(c).reshape(-1,2)
-    #plt.subplot(211)
-    #plt.scatter(arr[:,0],arr[:,1], label='orig')
-    #plt.subplot(212)
-    #plt.scatter(c[:,0],c[:,1], label='cleaned')
-    #plt.show()
     return c
 
 def get_ref_go_board_coords(min, max):
@@ -644,21 +589,154 @@ class GoBoard:
             l3 = np.array([path[2][0], path[3][1]])
             l4 = np.array([path[0][0], path[3][1]])
             p = np.array([l1,l2,l3,l4]).astype(int)
-        # patch = cv2.cvtColor(crop(p, img), cv2.COLOR_BGR2GRAY)
+
             patch = crop(p, img)
-        #        patch = patch / 255.0
+
+            # fail for false calib -> None
+            if not np.all(np.array(patch.shape) > 0):
+                return None
 
             patch =  transform.resize(patch, (32,32),  anti_aliasing=True)
             patches.append(patch)
-            #m = np.nanmean(patch)
+
         return patches
- 
-    def calib(self, img):
-        h,w = img.shape
+
+    def line_point_distance(self, point, line_s, line_e):
+        '''
+        '''
+        nom = np.abs((line_e[0]-line_s[0])*(line_s[1]-point[1]) - (line_s[0]-point[0])*(line_e[1]-line_s[1]))
+        denom = np.sqrt((line_e[0]-line_s[0])**2 + (line_e[1]-line_s[1])**2) + 1e-12
+        return nom/denom
+
+    def sort_corners(self, corners):
+        '''
+            corners will be sorted by their center of mass in clockwise orientation
+        '''
+        if len(corners) > 1:
+            center = np.mean(corners,0)
+            diff = corners - center
+            angles = []
+            for vec in diff.squeeze():
+                angles.append(np.arctan2(vec[1], vec[0]))
+            corners = corners[np.argsort(angles)]
+            return corners.squeeze()
+        else:
+            return None
+
+    def get_corners(self, vp1, vp2, img):
+
+        contours, hierarchy = cv2.findContours(img, 1, 2)
+        # vp1 and vp2 are the horizontal and vertical vps
+        min_dist = 10000
+        corners = []
+        corners_mat = None
+
+        best_image = np.zeros_like(img)
+        img_out = img_c
+        min_area = np.prod(img.shape)
+        print("Min Area: {}".format(min_area))
+        for c, cnt in enumerate(contours):
+            img_out = img_c
+            #expect at least half
+            area = cv2.contourArea(cnt)
+            if area > 0.2*min_area:
+
+                #somethimes the contour has small dents .. approximate till we have four corners left
+                # to demonstrate the impact of contour approximation, let's loop
+                # over a number of epsilon sizes
+
+                for eps in np.linspace(0.001, 0.05, 10):
+                    # approximate the contour
+                    peri = cv2.arcLength(cnt, True)
+                    approx = cv2.approxPolyDP(cnt, eps * peri, True)
+                    # debug output
+                    output = cv2.cvtColor(img.copy(), cv2.COLOR_GRAY2RGB)
+                    cv2.drawContours(output, [approx], -1, (0, 255, 0), 3)
+                    #text = "eps={:.4f}, num_pts={}".format(eps, len(approx))
+                    #cv2.putText(output, text, (0, 0), cv2.FONT_HERSHEY_SIMPLEX,\
+                    #    0.9, (0, 255, 0), 2)
+                    ## show the approximated contour image
+                    #print("[INFO] {}".format(text))
+                    cv2.imshow("PyGO", output)
+                    cv2.waitKey(50)
+                    # debug output end
+
+                    if len(approx) == 4:
+                        # when we found an approximation with only four corneres we can stop
+                        cnt = approx
+                        break
+
+                if len(approx) != 4:
+                    # in case we looped to the end without a good result goto next shape
+                    print("False corner count, we have : {}".format(len(approx)))
+                    continue
+
+                # Find corners on the mask
+                mask = np.zeros((img.shape),np.uint8)
+                mask = cv2.fillConvexPoly(mask, np.array(approx), 255)
+                
+                corners = cv2.goodFeaturesToTrack(mask, \
+                                                    maxCorners=4, \
+                                                    qualityLevel=0.1, \
+                                                    minDistance=200)
+                if corners is None:
+                    continue
+                corners = self.sort_corners(corners)
+                
+                if corners is not None and len(corners) >= 4:
+                    topmost = corners[0]
+                    rightmost = corners[1]
+                    bottommost = corners[2]
+                    leftmost = corners[3]
+                    corner_mask = np.zeros((img.shape), np.uint8)
+                    corner_mask = cv2.fillConvexPoly(corner_mask, corners[:,None,:].astype(int), 255)
+                    dev_pixels = np.sum(mask-corner_mask)
+
+                    if dev_pixels > 0.2 * np.sum(mask):
+                        #plt.subplot(121)
+                        #plt.imshow(mask-corner_mask)
+                        #plt.subplot(122)
+                        #plt.scatter(corners[:,0],corners[:,1])
+                        #plt.imshow(img)
+                        #plt.show()
+                        #print('skip')
+                        continue
+
+                    d1 = min(self.line_point_distance(vp1, leftmost, topmost), 
+                            self.line_point_distance(vp2, leftmost, topmost))
+                    d2 = min(self.line_point_distance(vp1, rightmost, bottommost),
+                            self.line_point_distance(vp2, rightmost, bottommost))
+
+                    d3 = min(self.line_point_distance(vp2, rightmost, topmost),
+                            self.line_point_distance(vp1, rightmost, topmost))
+                    d4 = min(self.line_point_distance(vp2, leftmost, bottommost),
+                            self.line_point_distance(vp1, leftmost, bottommost))
+
+                    # best detection has minimal deviation from vp and least deviation 
+                    # from four corners area to poly area
+
+                    dist = d1 + d2 + d3 + d4
+                    if dist < min_dist:
+                        min_dist = dist
+                        image = cv2.drawContours(img_out, contours, c, (0, 255, 0), 3)
+                        #cv2.imshow('',image)
+                        #cv2.waitKey(1000)
+
+                        best_image = image
+                        best_cnt = cnt
+                        #print(area)
+                        corners = [leftmost, topmost, rightmost, bottommost]
+                        corners_mat = np.array(corners)
+        #if corners_mat is not None:
+        #    plt.imshow(best_image)
+        #    plt.scatter(corners_mat[:,0], corners_mat[:,1])
+        #    plt.show(block=False)
+
+        return corners_mat
+
+    def get_vp(self, img):
         van_points = self.vp.find_vps(img)
         vpd = self.vp.create_debug_VP_image()
-        cv2.imshow('PyGO', vpd)
-        cv2.waitKey(500)
         lines_vp = []
         vps = self.vp.vps_2D
         vp3d = self.vp.vps
@@ -666,6 +744,48 @@ class GoBoard:
         vps = np.delete(vps, vert_vp, axis=0)
         vp1 = np.array([vps[0,0], vps[0,1], 1])
         vp2 = np.array([vps[1,0], vps[1,1], 1])
+        return vp1, vp2
+        
+    def calib(self, img):
+        if len(img.shape) == 3:
+            h,w,c = img.shape
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        else:
+            h,w = img.shape
+
+        vp1, vp2 = self.get_vp(img) 
+
+        thresh, img_bw = cv2.threshold(img, \
+                                    0, \
+                                    255, \
+                                    cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        # clean img_bw
+
+        corners = self.get_corners(vp1, vp2, img_bw)
+        if corners is None:
+            kernelSizes = [(3,3), (3,3), (3,3)]#(5, 5), (7, 7)]
+            # loop over the kernels sizes
+            for kernelSize in kernelSizes:
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, kernelSize)
+                img_bw = cv2.morphologyEx(img_bw, cv2.MORPH_OPEN, kernel)
+                corners = self.get_corners(vp1, vp2, img_bw)
+                #up to threee filter layers
+                if corners is not None:
+                    #plt.imshow(img_bw)
+                    #plt.scatter(corners[:,0], corners[:,1])
+                    #plt.show()
+                    break
+
+        # assumption most lines in the image are from the go board -> vp give us the plane
+        # the contour which belongs to those vp is the board
+        if corners is None:
+            print('Calib Failed')
+            return
+        mask = np.zeros((img_bw.shape),np.uint8)
+        mask = cv2.fillConvexPoly(mask, corners.astype(int), 255)
+
+        # rectify image
+        lines_vp = []
         vps_list_1.append(vp1)
         vps_list_2.append(vp2)        
         lines_cluster = self.vp.get_lines()
@@ -679,34 +799,95 @@ class GoBoard:
         self.img_limits = img_limits
         img_min = (img.shape[1],img.shape[0])
         img_max = (0,0)
-
-
+        #cv2.imshow("mask", mask)
+        #cv2.waitKey(100)
+        
         img_cw = cv2.warpPerspective(img, H, img_limits)
+        img_cw2 = cv2.warpPerspective(img, H, img_limits)
+        mask = cv2.warpPerspective(mask, H, img_limits)
+        
+        #cv2.drawContours(mask,[best_cnt],0,255,-1)
+        #cv2.drawContours(mask,[best_cnt],0,0,2)
+        for i in range(7):
+            mask = cv2.dilate(mask, np.ones((3,3), dtype=np.uint8))
+        img_cw[mask==0] = 0
+
         img_dcw = np.asarray(img_cw, dtype=np.double, order='C')
+        thresh, img_cw = cv2.threshold(img_cw, \
+                                    0, \
+                                    255, \
+                                    cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
+        img_cw[mask==0] = 0
+        lines = cv2.HoughLines(img_cw, 1, np.pi / 180, 150, None, 0, 0)
+        img_lines = cv2.cvtColor(img_cw2.copy(), cv2.COLOR_GRAY2RGB)
+        lines_v = []
+        lines_h = [] 
+        T = []
+        if lines is not None:
+            for i in range(0, len(lines)):
+                rho = lines[i][0][0]
+                theta = lines[i][0][1]
+                # convert both to positive values -> map to first quadrant
+                if rho < 0:
+                    continue
+                a = np.abs(math.cos(theta))
+                b = np.abs(math.sin(theta))
+                x0 = a * rho
+                y0 = b * rho
+                pt1 = (int(x0 + 1000*(-b)), int(y0 + 1000*(a)))
+                pt2 = (int(x0 - 1000*(-b)), int(y0 - 1000*(a)))
+                cv2.line(img_dcw, pt1, pt2, (255,255,255), 1, cv2.LINE_AA)
+                if theta > np.pi:
+                    theta -= np.pi
+                if np.abs(theta) < np.pi/8:
+                    lines_v.append([*pt1, *pt2])
+                    cv2.line(img_lines, pt1, pt2, (255,0,0), 1)
+                else:
+                    lines_h.append([*pt1, *pt2])
+                    cv2.line(img_lines, pt1, pt2, (0,255,0), 1)
 
+        cv2.imshow("PyGO", img_lines) 
+        cv2.waitKey(1)
+        lines = intersect(np.array(lines_v), np.array(lines_h))
+        #[plt.axline((l[0],l[1]), (l[2],l[3])) for l in lines_v]
+        #[plt.axline((l[0],l[1]), (l[2],l[3])) for l in lines_h]
+        #plt.scatter(lines[:,0], lines[:,1])
+        #plt.show(block=False)
 
-        lines_warpedV = []
-        lines_warpedH = []
+ 
 
-        for lines in lines_vp:
-            lines_warpedV.append(cv2.perspectiveTransform(np.stack(lines[0]).reshape(-1,1,2), H).reshape(-1,4))
-            lines_warpedH.append(cv2.perspectiveTransform(np.stack(lines[1]).reshape(-1,1,2), H).reshape(-1,4))
-        pdb.set_trace()
-
-        lines_raw_orig = cluster(lines[0], lines[1])
-        lines = cluster(lines_warpedH[0], lines_warpedV[0])
-        h,w = img_cw.shape
-        lines = clear_bimodal(lines, h)
-
-
-        img_max = (img_cw.shape[1], img_cw.shape[0])
-        img_min = (0,0)
-    
+        # init ref grid
+        if len(lines) == 0:
+            print('Could not find enought lines - calib failed')
+            return 
         self.grid = get_ref_go_board_coords(np.min(lines, axis=0), np.max(lines, axis=0))
-        img_cw = cv2.warpPerspective(img, H, img_limits)
+        # warp back to original images
+        lines_raw_orig = cv2.perspectiveTransform(lines[:,None,:], np.linalg.inv(H)).squeeze()
+
+        #pdb.set_trace()        
+        #plt.scatter(lines[:,0], lines[:,1])
+        #plt.imshow(img_dcw)
+        #plt.show()
+
+        #lines_warpedV = []
+        #lines_warpedH = []
+
+        #for lines in lines_vp:
+        #    lines_warpedV.append(cv2.perspectiveTransform(np.stack(lines[0]).reshape(-1,1,2), H).reshape(-1,4))
+        #    lines_warpedH.append(cv2.perspectiveTransform(np.stack(lines[1]).reshape(-1,1,2), H).reshape(-1,4))
+
+        #lines_raw_orig = cluster(lines[0], lines[1])
+        #lines = cluster(lines_warpedH[0], lines_warpedV[0])
+        #lines = clear(lines)
+
+
+        #img_max = (img_cw.shape[1], img_cw.shape[0])
+        #img_min = (0,0)
+    
+        #img_cw = cv2.warpPerspective(img, H, img_limits)
 
         def visualize(iteration, error, X, Y, ax):
-            if iteration % 1 == 0:
+            #if iteration % 50 == 0:
                 plt.cla()
                 ax.scatter(X[:, 0],  X[:, 1], color='red', label='Target')
                 ax.scatter(Y[:, 0],  Y[:, 1], color='blue', label='Source')
@@ -720,61 +901,93 @@ class GoBoard:
         fig = plt.figure()
         fig.add_axes([0, 0, 1, 1])
         callback = partial(visualize, ax=fig.axes[0])
-
-        reg = AffineRegistration(**{'Y': lines, 
-                                'X': self.grid, 
-                                'max_iterations': 15000,
-                                'tolerance': 0.0000001,
-                                #'w' : 0.01,
-                                'B' : np.eye(2)*5
+        reg = AffineRegistration(**{'X': lines, 
+                                'Y': self.grid, 
+                                'max_iterations': 8000,
+                                'tolerance': 0.0001,
                                 })
-        ty, param = reg.register(callback)
-        #ty, param = reg.register()
+        #ty, param = reg.register(callback)
+        ty, param = reg.register()
 
-        l = lines.reshape(-1,1,2)
-        g = self.grid.reshape(-1,1,2)
-        rnd = np.random.default_rng()
-        if len(l) > len(g):
-            # random delete points
-            d = len(l) - len(g)
-            delidx = np.random.choice(len(l), d, replace=False)
-            l = np.delete(l, delidx, axis=0).reshape(-1,1,2)
-        else:
-            d = len(g) - len(l)
-            delidx = np.random.choice(len(l), d, replace=False)
-            g = np.delete(g, delidx, axis=0).reshape(-1,1,2)
-        param, _ = cv2.estimateAffinePartial2D(g, l)
         R = np.eye(3)
-        R[:2] = param
-        #R[0:2,0:2]=param[0]
-        #R[0:2,2]=param[1]
+        R[0:2,0:2]=param[0]
+        R[0:2,2]=param[1]
 
-        w_board = cv2.transform(np.array([self.grid]), np.linalg.inv(R))[0][:,:2]
+
+        w_board = cv2.transform(np.array([self.grid]), (R))[0][:,:2]
         ow_board = cv2.perspectiveTransform(np.array([self.grid]), R@np.linalg.inv(H))[0]
 
-        #img_grid = plot_grid(img.copy(), ow_board.reshape(-1,2))
+        img_grid = plot_grid(img.copy(), ow_board.reshape(-1,2))
         #cv2.imshow('PyGO', img_grid)
         #cv2.waitKey(500)        
     
         src_pt = find_src_pt(ow_board, lines_raw_orig)
         H_refined = cv2.findHomography(src_pt, ow_board)[0]
+        print(H)
         w_board = cv2.perspectiveTransform(np.array([self.grid]), R @ np.linalg.inv(H) @ np.linalg.inv(H_refined))[0]
 
         H_refined = R @ np.linalg.inv(H) @ np.linalg.inv(H_refined)
 
         img_grid = plot_grid(img.copy(), w_board.reshape(-1,2))
         cv2.imshow('PyGO', img_grid)
-        cv2.waitKey(1500)       
+        cv2.waitKey(1)       
         self.H = H_refined 
-        self.hasEstimate=True
+        if self.check_patches_are_centered(img):
+            self.hasEstimate=True
+            print(self.H)
+        else:
+            self.H = np.eye(3)
+            print('Calibration failed!')
 
-        print(self.H)
+
+    def check_patches_are_centered(self, img):
+        cropped = self.extract(img)
+        patches = self.imgToPatches(cropped)
+        cv2.imshow('PyGO', cropped)
+        cv2.waitKey(1000)
+        if patches is None:
+            pdb.set_trace()
+            print('could not extract patches')
+            return False
+
+        lines_x = []
+        lines_y = []
+        for i, patch in enumerate(patches):
+            x,y = np.unravel_index(i, (19,19))
+            if  x in [0,18] or y in [0,18]:
+                #skip corners due to possible inclusion of board corners
+                continue
+            if x in [2,4,8,10,14,16] and y in [3,9,15]:
+                #exclude calib patches
+                continue
+
+            thresh, patch_bw = cv2.threshold(toByteImage(patch), \
+                                    0, \
+                                    255, \
+                                    cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
+
+            lines_x.append(np.argmax(np.sum(patch_bw, 0)))
+            lines_y.append(np.argmax(np.sum(patch_bw, 1)))
+        
+        if np.std(lines_x) > 2 or np.std(lines_y) > 2:
+            print("std x: {}".format(np.std(lines_x)))
+            print("std y: {}".format(np.std(lines_y)))
+            return False
+        else:
+            return True
+
  
     def extract(self, img):
         img_w = cv2.warpPerspective(img, np.linalg.inv(self.H), self.img_limits)
 
+        #cv2.imshow('PyGO', img_w) 
+        #cv2.waitKey(100)
+
         img_c_trim, (x,y) = mask_board(img_w, self.grid)
         self.go_board_shifted = self.grid - np.array([x,y])
+        
+        #cv2.imshow('PyGO', img_c_trim) 
+        #cv2.waitKey(100)
 
         #determined spaces from grid spacing
         cell_w = np.mean(np.diff(self.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))
@@ -789,6 +1002,32 @@ class GoBoard:
 
     def extractOnPoints(self, img):
         img = self.extract(img)
+        '''
+            + = empty
+            B = Black
+            W = White
+            O = Ref points on board
+
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + B O W + + + B O W + + + B O W + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + B O W + + + B O W + + + B O W + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + B O W + + + B O W + + + B O W + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+        '''
         points_w = np.array([[ 4, 3],
                              [10, 3],
                              [16, 3],
@@ -812,11 +1051,34 @@ class GoBoard:
         idx_b = np.ravel_multi_index(points_b.T, (19,19))
         idx_n = np.arange(19*19)
         idx_n = np.delete(idx_n, np.concatenate((idx_w,idx_b)))
-        patches = []
+        patches = [[],[],[]]
         p = self.imgToPatches(img)
-        for idx in [idx_w, idx_b, idx_n]:
-            patches.append(np.array(p)[idx])
+        for c, idx in enumerate([idx_w, idx_b, idx_n]):
+            patches[c].append(np.array(p)[idx])
+            #plt.imshow(np.vstack(np.array(p)[idx]))
+            #plt.show()
         return patches
+
+def N2C(c):
+    if c == 0:
+        c_str = 'W' 
+    elif c == 1:
+        c_str = 'B' 
+    elif c == 2:
+        c_str = 'E' 
+    return c_str
+def C2N(c):
+    if c == 'W':
+        return 0
+    elif c == 'B':
+        return 1
+    elif c == 'E':
+        return 2
+
+class Color(Enum):
+    WHITE = 0
+    BLACK = 1
+    NONE  = 2
 
 class GameState(Enum):
     RUNNING = 0
@@ -913,7 +1175,8 @@ class Game:
                             self.last_color = 2
                         self.state[x,y] = 2
                         return
-
+            rnd = random.randint(1,5) 
+            playsound('sounds/stone{}.wav'.format(rnd))
             self.last_x = x
             self.last_y = y
             print('{}: {}-{}'.format(c_str, x+1, y+1))
@@ -946,56 +1209,90 @@ class MotionDetection:
             #first iteration after vp detect
             self.imgLast = img
             return True
+
         p1, st, err = cv2.calcOpticalFlowPyrLK(self.imgLast, img, self.p0, None, **self.lk_params)
         # Select good points
         if p1 is not None:
             good_new = p1[st==1]
             good_old = self.p0[st==1]
-
+        else:
+            return True
+        
         motion = np.max(np.abs(good_new-good_old))
         self.p0 = good_new.reshape(-1,1,2)
+        self.imgLast = img
+
         if motion >= 0.2:
+            # if we detect wiggle reset the frame counter
             self.hist = self.hist // 2
             return True
         else: 
-            if self.hist < 10:
+            if self.hist < 15:
+                # block for at least 10 frames
                 self.hist += 1
                 return True
             else:
                 return False
 
+
+
+class MotionDetectionMOG2:
+    def __init__(self, img):
+        img = cv2.resize(img, None, fx=0.25,fy=0.25)
+        self.imgLast = img
+        self.hist = 0
+        self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(3,3))
+        self.fgbg = cv2.createBackgroundSubtractorMOG2()
+        self.motion_active = False
+
+    def hasMotion(self, img):
+        img = cv2.resize(img, None, fx=0.25,fy=0.25)
+        fgmask = self.fgbg.apply(img)
+        fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel)
+
+        if not self.motion_active and fgmask.sum() > 10:
+            # hand onto of board
+            self.motion_active = True
+            return True
+
+        if self.motion_active and fgmask.sum() == 0:
+            if self.hist < 5:
+                self.hist += 1
+                return True
+            else:
+                # hand out of board
+                self.motion_active = False
+                self.hist = 0
+                print('no Motion')
+                return False
+
+        return True
+
 if __name__ == '__main__':
-    parse = argparse.ArgumentParser('PyGO')
-    parse.add_argument('--video', default='')
-    parse.add_argument('--seek',  default=0.0, type=float)
-    args = parse.parse_args()
-
-    if args.video !='':
-        webcam = cv2.VideoCapture(args.video)
-        if args.seek > 0.0:
-            # seek is in seconds -> mult with frames
-            webcam.set(cv2.CAP_PROP_POS_MSEC, (1000*args.seek)-1) 
-    else:
-        raise FileNotFoundError('No Video specified!')
-
     ELSD = PyELSD()
     PLOT_CIRCLES=False
     PLOT_LINES=False
     global COUNT 
     COUNT = 0
-    CC = CameraCalib(np.load('../config/calib_960.npy'))
+    CC = CameraCalib(np.load('../calib_960.npy'))
 
 
+    #webcam = cv2.VideoCapture('/home/michael/Documents/go000.avi')
+    path = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_Live_camera_SN0001-video-index0"
+    webcam = cv2.VideoCapture(path)
+    #webcam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     _, img = webcam.read()
-    last_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    last_img = img
+    #last_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     CC.center = (last_img.shape[1]//2, last_img.shape[0]//2)
-    MD = MotionDetection(last_img)
+    MD = MotionDetectionMOG2(last_img)
     BOARD = GoBoard(CC)
     GS = Game()
     KATRAIN = None
-    PatchClassifier = GoClassifier()
-    #PatchClassifier = HaarClassifier()
+    #PatchClassifier = GoClassifier()
+    PatchClassifier = HaarClassifier()
+    #PatchClassifier = IlluminanceClassifier()
     vps_list_1 = []
     vps_list_2 = []
 
@@ -1003,83 +1300,79 @@ if __name__ == '__main__':
     print('(c)alibrate      (t)rain')
     print('(n)ew game       (f)nish game')
     print('(a)nalyze')
-    
-    # init
-    _,img_c = webcam.read()
-    img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
-
-    print('Calibration')
-    BOARD.calib(img)
-    
-    print('New Game started')
-    GS.startNewGame(19)
-
 
     while True:
         #webcam.grab()
         #_,img_c = webcam.retrieve()
         _,img_c = webcam.read()
-        img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
+        #img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
+        img = img_c
 
-        #last_key = cv2.waitKey(1) 
-        #if last_key == ord('c'):
-        #    print('Calibration')
-        #    BOARD.calib(img)
+        last_key = cv2.waitKey(1) 
+        if last_key == ord('c'):
+            print('Calibration')
+            BOARD.calib(img)
       
-        #elif last_key == ord('t'):
-        #    print('Clear Board - Press (c)ontinue')
-        #    patches = []
-        #    while True:
-        #        ret, img_c = webcam.read()
-        #        img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
-        #        last_key = cv2.waitKey(1) 
+        elif last_key == ord('t'):
+            print('Place stones in training pattern - Press (c)ontinue')
+            patches = []
+            while True:
+                ret, img_c = webcam.read()
+                #img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
+                img = img_c
+                last_key = cv2.waitKey(1) 
 
-        #        if not BOARD.hasEstimate:
-        #            print("Calibrate the Board first!")
-        #            break
+                if not BOARD.hasEstimate:
+                    print("Calibrate the Board first!")
+                    break
 
-        #        if last_key == ord('c'):
-        #            patches = BOARD.extractOnPoints(img)
-        #            PatchClassifier.train(patches)
-        #            PatchClassifier.store()
-        #            break
+                if last_key == ord('c'):
+                    patches = BOARD.extractOnPoints(img)
+                    PatchClassifier.train(patches)
+                    PatchClassifier.store()
+                    break
         
-        #elif last_key == ord('n'):
-        #elif last_key == ord('a'):
-        #    print('Live Gama analysis')
-        #    addr = input('Server Address: default[127.0.0.1:8888]') or 'localhost:8888'
-        #    addr = addr.split(':')
-        #    net_addr = (addr[0], int(addr[1]))
-        #    KATRAIN = Client(net_addr, authkey=b'katrain')
-        #    print('Connected to Katrain')
+        elif last_key == ord('n'):
+            print('New Game started')
+            GS.startNewGame(19)
 
-        #elif last_key == ord('f'):
-        #    print('Game finished')
-        #    GS.endGame()
-        #    if KATRAIN is not None:
-        #        KATRAIN.close()
+        elif last_key == ord('a'):
+            print('Live Gama analysis')
+            addr = input('Server Address: default[127.0.0.1:8888]') or 'localhost:8888'
+            addr = addr.split(':')
+            if len(addr) == 1:
+                # add default port
+                addr.append('8888')
+            net_addr = (addr[0], int(addr[1]))
+            KATRAIN = Client(net_addr, authkey=b'katrain')
+            print('Connected to Katrain')
 
-        #elif last_key == ord('q'):
-        #    print('Good Bye!')
-        #    if GS.GS == GameState.RUNNING:
-        #        GS.endGame()
-        #    if KATRAIN is not None:
-        #        KATRAIN.close()
-        #    break
+        elif last_key == ord('f'):
+            print('Game finished')
+            GS.endGame()
+            if KATRAIN is not None:
+                KATRAIN.close()
+
+        elif last_key == ord('q'):
+            print('Good Bye!')
+            if GS.GS == GameState.RUNNING:
+                GS.endGame()
+            if KATRAIN is not None:
+                KATRAIN.close()
+            break
         
         if BOARD.hasEstimate:
             img = BOARD.extract(img)
-            pdb.set_trace()
             if not MD.hasMotion(img):
                 if PatchClassifier.hasWeights:
-                    val = PatchClassifier.predict(BOARD.imgToPatches(img))
+                    patches = BOARD.imgToPatches(img)
+                    val = PatchClassifier.predict(patches)
+                    print(val.reshape(19,19))
                     GS.updateState(val)
 
-                        
-
-        if BOARD.hasEstimate:
             img = plot_overlay(GS.state, BOARD.go_board_shifted, img)
         cv2.imshow('PyGO',img)
+        cv2.waitKey(1)
 
         last_img = img
    
