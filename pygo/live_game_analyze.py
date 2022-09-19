@@ -16,6 +16,7 @@ from utils.data import save_training_data
 from utils.plot import plot_overlay
 from Game import Game, GameState
 from Ensemble import SoftVoting, MajorityVoting
+from Webcam import Webcam
 
 from pyELSD.pyELSD import PyELSD
 from utils.image import *
@@ -27,13 +28,6 @@ import warnings
 warnings.filterwarnings('always') 
 
 
-class CameraCalib:
-    def __init__(self, intr) -> None:
-        self.focal = intr[0,0]
-        self.intr = intr
-        self.center = (intr[0,2], intr[1,2])
-
-
 
 if __name__ == '__main__':
     PLOT_CIRCLES=False
@@ -42,21 +36,24 @@ if __name__ == '__main__':
     COUNT = 0
 
     # TODO AUTOCALIB with go board pattern
-    CC = CameraCalib(np.load('../calib_960.npy'))
+    #CC = CameraCalib(np.load('../calib_960.npy'))
 
 
     #webcam = cv2.VideoCapture('/home/michael/Documents/go000.avi')
-    path = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_Live_camera_SN0001-video-index0"
-    webcam = cv2.VideoCapture(path)
-    #webcam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    _, img = webcam.read()
-    last_img = img
+    #path = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_Live_camera_SN0001-video-index0"
+    #webcam = cv2.VideoCapture(path)
+    ##webcam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    #_, img = webcam.read()
+    #last_img = img
     #last_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    CC.center = (last_img.shape[1]//2, last_img.shape[0]//2)
+    #CC.center = (last_img.shape[1]//2, last_img.shape[0]//2)
+    webcam = Webcam()
+    _, img = webcam.read()
+    last_img = img
     MD = MotionDetectionMOG2(last_img)
     MASKER = MotionDetectionMOG2(last_img, resize=False)
-    BOARD = GoBoard(CC)
+    BOARD = GoBoard(webcam.getCalibration())
     GS = Game()
     KATRAIN = None
     last_move = None
@@ -74,10 +71,7 @@ if __name__ == '__main__':
     print('(a)nalyze')
 
     while True:
-        #webcam.grab()
-        #_,img_c = webcam.retrieve()
         _,img_c = webcam.read()
-        #img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
         img = img_c
 
         last_key = cv2.waitKey(1) 
