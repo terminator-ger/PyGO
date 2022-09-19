@@ -48,6 +48,10 @@ def toByteImage(image):
         image = image.astype(np.uint8)
     return image
 
+def toHSVImage(image):
+    img = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+    return img
+
 def toFloatImage(image):
     '''
     Returns the Float32 representation of an image
@@ -92,20 +96,21 @@ def toColorImage(image):
     return image
 
 
+# Load image
+def toCMYKImage(image):
+    bgrdash = toByteImage(image).astype(float)/255.
 
-def load_training_data(classes):
-    x = []
-    y = []
+    # Calculate K as (1 - whatever is biggest out of Rdash, Gdash, Bdash)
+    K = 1 - np.max(bgrdash, axis=2)
+    # Calculate C
+    C = (1-bgrdash[...,2] - K)/((1-K)+1e-12)
 
-    for folder in os.listdir('data'):
-        if int(folder) in classes:
-            for file in os.listdir(os.path.join('data', folder)):
-                img = io.imread(os.path.join('data', folder, file))
-                img = toColorImage(img)
-                img = cv2.resize(img, (32,32))
-                img = np.array(img)
-                x.append(img)
-                f = int(folder.split('.png')[0])
-                y.append(f)
+    # Calculate M
+    M = (1-bgrdash[...,1] - K)/((1-K)+1e-12)
 
-    return x, y
+    # Calculate Y
+    Y = (1-bgrdash[...,0] - K)/((1-K)+1e-12)
+
+    # Combine 4 channels into single image and re-scale back up to uint8
+    CMYK = (np.dstack((C,M,Y,K)) * 255).astype(np.uint8)
+    return CMYK
