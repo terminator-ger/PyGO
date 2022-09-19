@@ -6,8 +6,11 @@ from datetime import datetime
 from playsound import playsound
 from sgfmill import sgf
 from utils.color import N2C, C2N
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import pdb
+
+Move = Tuple[str, Tuple(int, int)]
+NetMove = List[str, int, int] # in serial format to be sent over socket
 
 class GameState(Enum):
     RUNNING = 0
@@ -23,16 +26,16 @@ class Game:
         # 0 = white
         # 1 = black
         # 2 = empty
-        self.GS = GameState.NOT_STARTED
+        self.GS : GameState = GameState.NOT_STARTED
         self.sgf = None
         self.sgf_node = None
        
-    def startNewGame(self, size=19):
+    def startNewGame(self, size=19) -> None:
         self.sgf = sgf.Sgf_game(size=size)
         self.sgf_node = self.sgf.get_root()
         self.GS = GameState.RUNNING
        
-    def endGame(self):
+    def endGame(self) -> None:
         if self.GS == GameState.RUNNING:
             cur_time = datetime.now().strftime("%d-%m-%Y_%H%M%S")
             with open('{}.sgf'.format(cur_time), 'wb') as f:
@@ -41,7 +44,7 @@ class Game:
             self.GS = GameState.NOT_STARTED
             self.sgf = None
 
-    def set(self, stone, coords):
+    def set(self, stone, coords) -> None:
         x = coords[0]
         y = coords[1]
         c_str = stone
@@ -54,7 +57,7 @@ class Game:
         self.state[x,y] = C2N(c_str)
         self.last_color = C2N(c_str)
 
-    def nextMove(self):
+    def nextMove(self) -> Optional[int]:
         if self.last_color == 0:
             return 1
         elif self.last_color == 1:
@@ -63,7 +66,7 @@ class Game:
             return None
 
 
-    def updateStateNoChecks(self, state):
+    def updateStateNoChecks(self, state) -> List[str, int, int]:
         state = state.reshape(19,19)
         idx = np.argwhere(np.abs(self.state-state)>0)
         if len(idx) > 0:
@@ -83,7 +86,7 @@ class Game:
 
 
 
-    def updateState(self, state):
+    def updateState(self, state) -> Tuple[List[Move], List[Move]]:
         '''
         input detected state from classifier
         '''
@@ -93,7 +96,7 @@ class Game:
             return self.updateStateNoChecks(state)
 
 
-    def whichMovesAreInTheGameTree(self, state) -> Tuple[List,List]:
+    def whichMovesAreInTheGameTree(self, state) -> Tuple[List[Move],List[Move]]:
         state = state.reshape(19,19)
         idx = np.argwhere(np.abs(self.state-state)>0)
         if self.GS == GameState.RUNNING:
@@ -119,7 +122,7 @@ class Game:
 
 
     
-    def updateStateWithChecks(self, state):
+    def updateStateWithChecks(self, state) -> NetMove:
         state = state.reshape(19,19)
         diff = np.count_nonzero(np.abs(self.state-state))
         idx = np.argwhere(np.abs(self.state-state)>0)

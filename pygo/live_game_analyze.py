@@ -32,25 +32,12 @@ warnings.filterwarnings('always')
 if __name__ == '__main__':
     PLOT_CIRCLES=False
     PLOT_LINES=False
-    global COUNT 
-    COUNT = 0
 
-    # TODO AUTOCALIB with go board pattern
-    #CC = CameraCalib(np.load('../calib_960.npy'))
-
-
-    #webcam = cv2.VideoCapture('/home/michael/Documents/go000.avi')
-    #path = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_Live_camera_SN0001-video-index0"
-    #webcam = cv2.VideoCapture(path)
-    ##webcam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    #_, img = webcam.read()
-    #last_img = img
-    #last_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    #CC.center = (last_img.shape[1]//2, last_img.shape[0]//2)
     webcam = Webcam()
+
     _, img = webcam.read()
     last_img = img
+
     MD = MotionDetectionMOG2(last_img)
     MASKER = MotionDetectionMOG2(last_img, resize=False)
     BOARD = GoBoard(webcam.getCalibration())
