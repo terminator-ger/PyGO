@@ -1,62 +1,105 @@
 from __future__ import division
+
+from requests import patch
+from utils.image import toHSVImage
 from tqdm import tqdm
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from joblib import load, dump
-
-from skimage import data, color, img_as_ubyte, exposure, transform, img_as_float
-from skimage.feature import canny, hog, corner_harris, corner_subpix, corner_peaks
-from skimage.transform import hough_ellipse
-from skimage.draw import ellipse_perimeter
-import collections
-from skimage import data
+from skimage import exposure
+from skimage.feature import hog
 from scipy.spatial import distance_matrix
 from GoNet import GoNet
 from sklearn.neighbors import KNeighborsClassifier
 import torch as th
-import sklearn
 import cv2
 import os
-import numpy as np
-from skimage import data, color, img_as_ubyte, exposure, transform, img_as_float
-from skimage.feature import canny, hog, corner_harris, corner_subpix, corner_peaks
-from skimage import data
 import pdb
-import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, f1_score
-from joblib import dump, load
-import imgaug as ia
 import imgaug.augmenters as iaa
 import torch as th
 import torch.nn.functional as F
 from tqdm import tqdm
 from sklearn.cluster import KMeans
-from skimage.feature import hog
-import numpy as np
-from skimage import exposure, img_as_float
-import numpy as np
-import matplotlib.pyplot as plt
 
-from dask import delayed
 
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score
 
-from skimage.data import lfw_subset
 from skimage.transform import integral_image
 from skimage.feature import haar_like_feature
 from skimage.feature import haar_like_feature_coord
-from skimage.feature import draw_haar_like_feature
-from pygo_utils import toDoubleImage, toByteImage, load_training_data
-
+from utils.image import toCMYKImage, toGrayImage, toColorImage, toDoubleImage, toByteImage
+from utils.data import load_training_data, save_training_data, load_training_data2
+from sklearn.svm import SVC
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from pyELSD.pyELSD import PyELSD
 import warnings
 warnings.filterwarnings('always') 
 def toNP(x):
     return x.detach().cpu().numpy()
 
 
+def load_and_augment_training_data(feat_fn):
+    x_train = []
+    y_train = []
+ 
+   # split patches back into their categories
+    seq = iaa.Sequential([
+        iaa.Fliplr(0.5), # horizontally flip 50% of all images
+        iaa.Flipud(0.5), # vertically flip 20% of all images
+        #iaa.color.MultiplyAndAddToBrightness(),
+        #iaa.color.MultiplyBrightness(mul=(0.8,1.2))
+        iaa.Multiply((0.8, 1.2), per_channel=0.2)
+    ])
+        
+    patches_arr = load_training_data()
+
+    #inflate stone samples
+    def inflate(cls, times):
+        for i in range(times):
+            for c in cls:
+                for p in patches_arr[c]:
+                    p = seq(image=p)
+                    p = toDoubleImage(np.array(p))
+                    x_train.append(p)
+                    y_train.append(c)
+
+    inflate([0,1], 5)#13)
+    inflate([2], 1)
+    inflate([3], 3)
+    inflate([4], 5)#62)
+
+    idx = np.arange(len(x_train))
+    np.random.shuffle(idx)
+    x = [x_train[i] for i in idx]
+    y = [y_train[i] for i in idx]
+    X = []
+    for img in tqdm(x):
+        X.append(feat_fn(img))
+
+    samples = len(x)
+    SPLT = int(0.1*samples)
+
+    #group 
+    X_train = np.array(X[:-SPLT])
+    y_train = np.array(y[:-SPLT])
+    X_test  = np.array(X[-SPLT:])
+    y_test  = np.array(y[-SPLT:])
+
+    def replace(vec, what, wth):
+        vec[vec==what] = wth
+        return vec
+    #y_train = replace(y_train, 3, 2)
+    #y_train = replace(y_train, 4, 2)
+    #y_test = replace(y_test, 3, 2)
+    #y_test = replace(y_test, 4, 2)
+
+    print('No Train Samples: {}'.format(len(X_train)))
+    print('No Test Samples: {}'.format(len(X_test)))
+ 
+    return X_train, y_train, X_test, y_test
 
 class Classifier:
     def predict(self, patches):
@@ -71,6 +114,216 @@ class Classifier:
     def store(self):
         raise NotImplementedError()
 
+class CircleClassifier(Classifier):
+    def __init__(self, BOARD) -> None:
+        self.elsd = PyELSD()
+        self.hasWeights = True
+        self.BOARD=BOARD
+        self.params = cv2.SimpleBlobDetector_Params()
+
+        self.params.minThreshold = 127
+        self.params.maxThreshold = 255
+
+        self.params.filterByCircularity = True
+        self.params.minCircularity = 0.10
+        self.params.maxCircularity = 1.0
+        
+        self.params.filterByConvexity = True
+        self.params.minConvexity = 0.0
+        self.params.maxConvexity = 1.0
+
+        self.params.filterByArea = True
+        self.params.minArea = 200
+        self.params.maxArea = 300
+
+        self.params.filterByInertia = True
+        self.params.minInertiaRatio = 0.1
+        self.params.maxInertiaRatio = 1.0
+
+    def predict__(self, img):
+        img_c = img.copy()
+        img = toGrayImage(img)
+        img_w = cv2.adaptiveThreshold(img, 255,
+                                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                cv2.THRESH_BINARY, 13, -10)
+
+        circles_w = cv2.HoughCircles(cv2.GaussianBlur(img_w, (3,3), 1), cv2.HOUGH_GRADIENT, 1, 
+                    7, 
+                    param1=20,
+                    param2=20,
+                    minRadius=5,
+                    maxRadius=12,
+                    ).astype(np.int)
+        
+        img_hough=img_w.copy()
+        img_hough = toColorImage(img_hough)
+        if circles_w is not None:
+            for i in circles_w[0,:]:
+                cv2.circle(img_hough, (i[0], i[1]), i[2], (0, 255, 0), 1)
+        #params.maxArea = 100;
+        font                   = cv2.FONT_HERSHEY_SIMPLEX
+        fontScale              = 0.8
+        fontColor              = (255,255,255)
+        thickness              = 1
+        lineType               = 2
+
+        #pdb.set_trace()
+        val = np.ones(19*19)*2
+        num_val = np.zeros(19*19)
+
+        def analyse(circles):
+            if circles is not None:
+                circles = np.uint16(np.around(circles))
+                for i in circles[0,:]:
+                    on_grid = (self.BOARD.go_board_shifted[:,0] - i[0])**2 + (self.BOARD.go_board_shifted[:,1] - i[1])**2 < i[2]**2
+                    mask = np.zeros_like(img)
+                    if np.any(on_grid):
+                        cv2.circle(img_c, (i[0], i[1]), i[2], (0, 255, 0), 1)
+                        cv2.circle(mask, (i[0], i[1]), i[2], (255), -1)
+                        patch = img[mask.astype(bool)]
+                        if 255-np.median(patch) < 80:
+                            val[np.argwhere(on_grid)] = 0
+                            cv2.putText(img_c, "{}".format(np.median(patch)),
+                                    (int(i[0]), int(i[1])),
+                                    font, 
+                                    fontScale,
+                                    fontColor,
+                                    thickness,
+                                    lineType)
+
+
+                        elif 255-np.median(patch > 180):
+                            val[np.argwhere(on_grid)] = 1
+                            cv2.putText(img_c, "{}".format(np.median(patch)),
+                                    (int(i[0]), int(i[1])),
+                                    font, 
+                                    fontScale,
+                                    fontColor,
+                                    thickness,
+                                    lineType)
+
+
+                        num_val[np.argwhere(on_grid)] = np.median(patch)
+
+        analyse(circles_w)
+        cv2.imshow('Debug', img_c)
+        cv2.waitKey(1)
+        return val.astype(int)
+
+
+
+
+
+    def predict(self, img):
+
+
+        img_c = img.copy()
+        img = toHSVImage(img_c.copy())[:,:,2]
+        img2 = toHSVImage(img_c.copy())[:,:,1]
+        value = toHSVImage(img_c.copy())[:,:,2]
+        img = toByteImage(img)
+        img2 = toByteImage(img2)
+        
+        img_b = cv2.adaptiveThreshold(img, 255,
+                                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                cv2.THRESH_BINARY, 
+                                31, 0)
+        
+        img_w = cv2.adaptiveThreshold(img2, 255,
+                                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                cv2.THRESH_BINARY, 
+                                31, 0)
+
+        #element = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
+        #                                    (3,3))
+
+        #img_b = cv2.morphologyEx(img_b, cv2.MORPH_CLOSE, element)
+        #img_w = cv2.morphologyEx(img_w, cv2.MORPH_CLOSE, element)
+
+        def watershed(fg):
+            fg = toByteImage(fg)
+            dist_transform = cv2.distanceTransform(fg,cv2.DIST_L2,3)
+            ret, sure_fg = cv2.threshold(dist_transform,0.7*dist_transform.max(),255,0)
+            unknown = fg - sure_fg
+            # Marker labelling
+            ret, markers = cv2.connectedComponents(toByteImage(sure_fg))
+            # Add one to all labels so that sure background is not 0, but 1
+            markers = markers+1
+            markers[unknown.astype(bool)]  = 0
+            markers = cv2.watershed(toColorImage(fg), markers)
+            markers[markers==1] = 0
+            markers[markers>1] = 255
+            markers[markers==-1] = 0
+            markers = toByteImage(markers)
+            markers = cv2.erode(markers, 
+                                cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3)))
+            markers = cv2.GaussianBlur(toGrayImage(markers), (3,3), 2)
+            return markers
+
+        mask_b = 255-watershed(255-img_b)
+        mask_w = 255-watershed(255-img_w)
+        
+        img_masks = [mask_b, mask_w]
+
+        ver = (cv2.__version__).split('.')
+        if int(ver[0]) < 3 :
+            detector = cv2.SimpleBlobDetector(self.params)
+        else :
+            detector = cv2.SimpleBlobDetector_create(self.params)
+
+        detected_circles = []
+        for img in img_masks:
+            keypoints = detector.detect(img)
+            img_c = cv2.drawKeypoints(img_c, keypoints, np.array([]), (255,0,0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+            for kp in keypoints:
+                crl = np.array([kp.pt[0], kp.pt[1], kp.size])
+                print(crl)
+                detected_circles.append([crl])
+        
+        cv2.imshow('Maskb', mask_b)
+        cv2.imshow('Maskw', mask_w)
+        
+ 
+        font                   = cv2.FONT_HERSHEY_SIMPLEX
+        fontScale              = 0.8
+        fontColor              = (255,255,255)
+        thickness              = 1
+        lineType               = 2
+
+        #pdb.set_trace()
+        val = np.ones(19*19)*2
+        num_val = np.zeros(19*19)
+
+        def analyse(circles):
+            if circles is not None:
+                circles = np.uint16(np.around(circles))
+                for i in circles:
+                    on_grid = (self.BOARD.go_board_shifted[:,0] - i[0])**2 + (self.BOARD.go_board_shifted[:,1] - i[1])**2 < (i[2]/2)**2
+                    mask = np.zeros_like(value)
+                    if np.any(on_grid):
+                        cv2.circle(img_c, (i[0], i[1]), int(i[2]/2), (0, 255, 0), 1)
+                        cv2.circle(mask, (i[0], i[1]), int(i[2]/2), (255), -1)
+                        patch = value[mask.astype(bool)]
+                        if np.median(patch) < 127:
+                            val[np.argwhere(on_grid)] = 1
+                        elif np.median(patch > 127):
+                            val[np.argwhere(on_grid)] = 0
+                        num_val[np.argwhere(on_grid)] = np.median(patch)
+                        cv2.putText(img_c, "{}".format(np.median(patch)),
+                                    (int(i[0]), int(i[1])),
+                                    font, 
+                                    fontScale,
+                                    fontColor,
+                                    thickness,
+                                    lineType)
+
+        for circles in detected_circles:
+            analyse(circles)
+        cv2.imshow('Debug', img_c)
+        cv2.waitKey(1)
+        return val.astype(int)
+
+
 class IlluminanceClassifier(Classifier):
     def __init__(self) -> None:
         self.hasWeights = False
@@ -84,87 +337,53 @@ class IlluminanceClassifier(Classifier):
             # gray to color
             img = cv2.cvtColor(toByteImage(img), cv2.COLOR_GRAY2RGB)
         img = toByteImage(img)
+        img = toCMYKImage(img)[:,:,3]
+        # features for black
+        thresh, img_bw = cv2.threshold(img, \
+                                    0, \
+                                    255, \
+                                    cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        sum_b = np.sum(img_bw)
+        img_x = np.mean(img_bw, axis=0)
+        img_y = np.mean(img_bw, axis=1)
 
-        #ii = cv2.cvtColor(toByteImage(img), cv2.COLOR_RGB2HSV)[:,:,2]
+        #f0 = np.histogram(img_x, bins=2, range=(0,255))[1]
+        #f1 = np.histogram(img_y, bins=2, range=(0,255))[1]
 
-        ii = np.histogram(img[5:-5, 5:-5], bins=255, range=(0,255))[1]
-        return ii
+        #for white
+        thresh, img_ww = cv2.threshold(img, \
+                                    0, \
+                                    255, \
+                                    cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
+        img_wx = np.mean(img_ww, axis=0)
+        img_wy = np.mean(img_ww, axis=1)
+        sum_w = np.sum(img_ww)
+
+        #f2 = np.histogram(img_wx, bins=2, range=(0,255))[1]
+        #f3 = np.histogram(img_wy, bins=2, range=(0,255))[1]
+        return np.concatenate((img_x, img_y,img_wx, img_wy, np.array([sum_w]), np.array([sum_b])))
+        return np.array([sum_w, sum_b])
 
     def predict(self, patches):
-        self.train(patches)
         x = []
         for i in (range(len(patches))):
             x.append(self.extract_feature_image(patches[i]))
         lbl = self.clf.predict(x)
         return lbl
 
+    def predict_prob(self, patches):
+        x = []
+        for i in (range(len(patches))):
+            x.append(self.extract_feature_image(patches[i]))
+        lbl = self.clf.predict_proba(x)
+        return lbl
 
-    def train(self, patches):
 
-        x_train = []
-        y_train = []
+    def train(self):
+        X_train, y_train, X_test, y_test = load_and_augment_training_data(self.extract_feature_image)
 
-        #data, label = load_training_data([0,1,2])
-        #patches = [[],[],[]]
-        #for lbl, img in zip(label, data):
-        #    patches[lbl].append(img)
-
-        self.clf = RandomForestClassifier(n_estimators=1000, max_depth=None,
-                             max_features=255, n_jobs=-1, random_state=0)
-
-        # split patches back into their categories
-        seq = iaa.Sequential([
-            iaa.Fliplr(0.5), # horizontally flip 50% of all images
-            iaa.Flipud(0.5), # vertically flip 20% of all images
-            #iaa.imgcorruptlike.Brightness((1,3)),
-            #iaa.color.MultiplyAndAddToBrightness(),
-            #iaa.color.MultiplyBrightness(mul=(0.8,1.2))
-        ])
-        patches_arr = [[],[],[]]
-        for c in range(len(patches)):
-            for i in range(len(patches[c])):
-                #patches_arr[c].append(cv2.cvtColor(np.array(patches[c][i]).astype(np.uint8), cv2.COLOR_GRAY2RGB))
-
-                patches_arr[c].append(toByteImage(patches[c][i]))
-
-        #inflate stone samples
-        for i in range(15):
-            patches_mod = [[],[],[]]
-            for c in range(0,2):
-                patches_mod[c] = seq(images=patches_arr[c][0])
-                for p in patches_mod[c]:
-                    p = toDoubleImage(np.array(p))
-                    x_train.append(p)
-                    y_train.append(c)
-
-        c = 2
-        patches_mod[c] = seq(images=patches_arr[c][0])
-        for p in patches_mod[c]:
-            p = toDoubleImage(np.array(p))
-            x_train.append(p)
-            y_train.append(c)
- 
-
-        idx = np.arange(len(x_train))
-        np.random.shuffle(idx)
-        x = [x_train[i] for i in idx]
-        y = [y_train[i] for i in idx]
-
-        X = []
-        for img in tqdm(x):
-            X.append(self.extract_feature_image(img))
-
-        samples = len(x)
-        SPLT = int(0.1*samples)
-
-        X_train = np.array(X[:-SPLT])
-        y_train = np.array(y[:-SPLT])
-        X_test  = np.array(X[-SPLT:])
-        y_test  = np.array(y[-SPLT:])
-
-        print('No Train Samples: {}'.format(len(X_train)))
-        print('No Test Samples: {}'.format(len(X_test)))
-        
+        self.clf = make_pipeline(StandardScaler(), SVC(gamma='auto', probability=True))
+       
         self.clf.fit(X_train, y_train)
 
         y_pred = self.clf.predict(X_test)
@@ -211,17 +430,32 @@ class HaarClassifier(Classifier):
                                             self.feature_type_sel, 
                                             self.feature_coord_sel))
         lbl = self.clf.predict(x)
+        # replace corners
+        #lbl[lbl==3] = 2
+        #lbl[lbl==4] = 2
+        return lbl
+
+    def predict_prob(self, patches):
+        x = []
+        for i in (range(len(patches))):
+            x.append(self.extract_feature_image(cv2.cvtColor(patches[i], cv2.COLOR_RGB2GRAY), 
+                                            self.feature_type_sel, 
+                                            self.feature_coord_sel))
+        lbl = self.clf.predict_proba(x)
         return lbl
 
 
-    def train(self, patches):
+
+    def train(self):
+
+        #X_train, y_train, X_test, y_test = load_and_augment_training_data(self.extract_feature_image)
         x_train = []
         y_train = []
 
-        #data, label = load_training_data([0,1,2])
-        #patches = [[],[],[]]
-        #for lbl, img in zip(label, data):
-        #    patches[lbl].append(img)
+        data, label = load_training_data2()
+        patches = [[],[],[],[],[]]
+        for lbl, img in zip(label, data):
+            patches[lbl].append(img)
 
 
         seq = iaa.Sequential([
@@ -232,41 +466,28 @@ class HaarClassifier(Classifier):
             iaa.color.MultiplyBrightness((0.9, 1.1))
         ])
         
-        patches_arr = [[],[],[]]
+        patches_arr = [[],[],[],[],[]]
         for c in range(len(patches)):
             for i in range(len(patches[c])):
                 #patches_arr[c].append(cv2.cvtColor(np.array(patches[c][i]).astype(np.uint8), cv2.COLOR_GRAY2RGB))
-
                 patches_arr[c].append(toByteImage(patches[c][i]))
 
 
         #inflate stone samples
-        for i in range(15):
-            patches_mod = [[],[],[]]
-            for c in range(0,2):
-                patches_mod[c] = seq(images=patches_arr[c][0])
+        for i in range(5):
+            patches_mod = [[],[],[],[],[]]
+            for c in [0,1,3,4]:
+                patches_mod[c] = seq(images=patches_arr[c])
                 for p in patches_mod[c]:
+                    #p = seq(image=p)
                     p = toDoubleImage(np.array(p))
                     x_train.append(p)
                     y_train.append(c)
 
-        corners = [np.array([0,0]),
-                   np.array([0,18]),
-                   np.array([18,0]),
-                   np.array([18,18])]
-        idx_ = np.arange(1,18)
-        edges_t = [np.array(0,i) for i in idx_]
-        edges_l = [np.array(i,0) for i in idx_]
-        edges_r = [np.array(18,i) for i in idx_]
-        edges_b = [np.array(i,18) for i in idx_]
-        edges = edges_b + edges_l + edges_r + edges_t
-
-        corner_idx = [np.ravel_multi_index(arr, (18,18)) for arr in corners]
-        edge_idx = [np.ravel_multi_index(arr, (18,18)) for arr in edges)]
-
         c = 2
-        patches_mod[c] = seq(images=patches_arr[c][0])
+        patches_mod[c] = seq(images=patches_arr[c])
         for p in patches_mod[c]:
+            #p = seq(image=p)
             p = toDoubleImage(np.array(p))
             x_train.append(p)
             y_train.append(c)
@@ -363,81 +584,54 @@ class HaarClassifier(Classifier):
 class GoClassifier(Classifier):
     def __init__(self) -> None:
         self.hasWeights = False
-        self.model = GoNet()
+        self.num_classes = 5
+        self.model = GoNet(num_classes=self.num_classes)
         self.load()
 
     def predict(self, patches):
-        x = []
-        for i in range(len(patches)):
-            x.append(cv2.cvtColor(np.array(patches[i]).astype(np.uint8), cv2.COLOR_GRAY2RGB))
-        x = th.from_numpy(np.array(x).astype(np.float32)).permute(0,3,1,2)
+        #x = []
+        #for i in range(len(patches)):
+        #    x.append(cv2.cvtColor(np.array(patches[i]).astype(np.uint8), cv2.COLOR_GRAY2RGB))
+        x = th.from_numpy(np.array(patches).astype(np.float32)).permute(0,3,1,2)
         lbl = self.model(x)
         lbl = lbl.detach().cpu().numpy()
         lbl = np.argmax(lbl, axis=1)
+
+        # replace corners
+        lbl[lbl==3] = 2
+        lbl[lbl==4] = 2
+        return lbl
+
+
+    def predict_prob(self, patches):
+        #x = []
+        #for i in range(len(patches)):
+        #    x.append(cv2.cvtColor(np.array(patches[i]).astype(np.uint8), cv2.COLOR_GRAY2RGB))
+        x = th.from_numpy(np.array(patches).astype(np.float32)).permute(0,3,1,2)
+        lbl = self.model(x)
+        lbl = lbl.detach().cpu().numpy()
+        # replace corners
         return lbl
 
 
 
-    def train(self, patches):
-        x_train = []
-        y_train = []
-        seq = iaa.Sequential([
-            iaa.Fliplr(0.5), # horizontally flip 50% of all images
-            iaa.Flipud(0.5), # vertically flip 20% of all images
-            iaa.imgcorruptlike.Brightness((1,3)),
-            iaa.color.MultiplyAndAddToBrightness(),
-        ])
-        patches_arr = [[],[],[]]
-        for c in range(len(patches)):
-            for i in range(len(patches[c])):
-                patches_arr[c].append(cv2.cvtColor(np.array(patches[c][i]).astype(np.uint8), cv2.COLOR_GRAY2RGB))
-
-        for i in range(15):
-            patches_mod = [[],[],[]]
-            for c in range(0,2):
-                patches_mod[c] = seq(images=patches_arr[c])
-                for p in patches_mod[c]:
-                    p = toDoubleImage(np.array(p))
-                    x_train.append(p)
-                    y_train.append(c)
-        c = 2
-        patches_mod[c] = seq(images=patches_arr[c])
-        for p in patches_mod[c]:
-            p = toDoubleImage(np.array(p))
-            x_train.append(p)
-            y_train.append(c)
-            # reduce
-
-   
-        X = np.array(x_train)
-        y = np.array(y_train)
-        idx = np.arange(len(X))
-        np.random.shuffle(idx)
-
-        # shuffle
-        X = X[idx]
-        y = y[idx]
-
-        SPLT = 100
-        X_train = X[:-SPLT]
-        y_train = y[:-SPLT]
-        X_test  = X[-SPLT:]
-        y_test  = y[-SPLT:]
-        
+    def train(self):
+        self.model = GoNet(num_classes=self.num_classes)
+        X_train, y_train, X_test, y_test = load_and_augment_training_data((lambda x:x))
+       
         X_train = th.from_numpy(X_train.astype(np.float32))
         y_train = th.from_numpy(y_train.astype(np.int_))
         X_test  = th.from_numpy(X_test.astype(np.float32))
         y_test  = th.from_numpy(y_test.astype(np.int_))
-
         # channels to pos 1
         X_train = X_train.permute(0,3,1,2)
         X_test  = X_test.permute(0,3,1,2)
 
         batch_size = X_train.size()[0]
-        opt = th.optim.Adam(self.model.parameters(), lr=0.0005)
+        opt = th.optim.Adam(self.model.parameters(), lr=0.001, weight_decay=0.005)
         loss_fn = th.nn.CrossEntropyLoss()
         print('train')
-        for i in range(10):
+        for i in range(40):
             #permutation = th.randperm(X_train.size()[0])
             permutation = np.arange(X_train.size()[0])
             
@@ -461,15 +655,12 @@ class GoClassifier(Classifier):
 
             if i % 5 == 0:
                 th.save(self.model, 'weights_{}_{}.pt'.format(i, f1))
-                plt.subplot(131)
-                if np.any((y_pred==0)):
-                    plt.imshow(np.vstack(X_test[y_pred==0, 0]))
-                plt.subplot(132)
-                if np.any((y_pred==1)):
-                    plt.imshow(np.vstack(X_test[y_pred==1, 0]))
-                plt.subplot(133)
-                if np.any((y_pred==2)):
-                    plt.imshow(np.vstack(X_test[y_pred==2, 0]))
+                for cls in range(self.num_classes):
+                    plots=101+self.num_classes*10
+                    plt.subplot(plots+cls)
+                    if np.any((y_pred==cls)):
+                        plt.imshow(np.vstack(X_test[y_pred==cls, 0]))
+
                 plt.savefig('{}.png'.format(i), dpi=400)
 
         print(classification_report(y_test, y_pred))

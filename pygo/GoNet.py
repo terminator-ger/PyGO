@@ -47,9 +47,8 @@ class ResBlock(th.nn.Module):
 
 
 class GoNet(th.nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes=3):
         super(GoNet, self).__init__()
-        
         self.conv0 = th.nn.Conv2d(3,  16, (3,3), padding=1)
 
         self.block0 = ResBlock(16, 32, stride=2)        
@@ -61,7 +60,7 @@ class GoNet(th.nn.Module):
         self.classifier = th.nn.Sequential(
             th.nn.AdaptiveMaxPool2d((1,1)),
             th.nn.Flatten(1),
-            th.nn.Linear(128, 3), 
+            th.nn.Linear(128, num_classes), 
         )
 
     def forward(self, x):
