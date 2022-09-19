@@ -12,8 +12,14 @@ from utils.plot import plot_grid
 from utils.image import toByteImage, toCMYKImage
 from pycpd import AffineRegistration, RigidRegistration, DeformableRegistration
 from functools import partial
-import pdb
 from shapely.geometry import Polygon, LineString
+from CameraCalib import CameraCalib
+from typing import Tuple, List
+import pdb
+
+
+Points = Tuple
+Image = np.ndarray
 
 class GoBoard:
     def __init__(self, CameraCalib):
@@ -25,7 +31,7 @@ class GoBoard:
         self.go_board_shifted = None
         self.hasEstimate = False
 
-    def crop(self, pts, img):
+    def crop(self, pts : Points, img : np.ndarray) :
         ## (1) Crop the bounding rect
         rect = cv2.boundingRect(pts)
         x,y,w,h = rect
@@ -46,7 +52,7 @@ class GoBoard:
         dst2 = bg+ dst
         return dst2
 
-    def imgToPatches(self, img):
+    def imgToPatches(self, img : Image) -> List[Image]:
         patches = []
         for path in zip(self.cl2, self.ct2, self.cr2, self.cb2):
             #l,r,t,b):
@@ -312,10 +318,16 @@ class GoBoard:
                                     0, \
                                     255, \
                                     cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
+        
         img_cw[mask==0] = 0
         #plt.imshow(img_cw)
         #plt.show()
-        lines = cv2.HoughLines(img_cw, 1, np.pi / 180, 150, None, 0, 0)
+        lines = cv2.HoughLines(img_cw, 
+                                rho=1, 
+                                theta= (np.pi/180*1), 
+                                threshold=150, 
+                                srn=2, 
+                                stn=2) 
         #img_lines = cv2.cvtColor(warped_img.copy(), cv2.COLOR_GRAY2RGB)
         img_lines = img_c
         lines_v = []
@@ -335,7 +347,7 @@ class GoBoard:
                 y0 = b * rho
                 pt1 = (int(x0 + 1000*(-b)), int(y0 + 1000*(a)))
                 pt2 = (int(x0 - 1000*(-b)), int(y0 - 1000*(a)))
-                cv2.line(img_dcw, pt1, pt2, (255,255,255), 1, cv2.LINE_AA)
+                #cv2.line(img_dcw, pt1, pt2, (255,255,255), 1, cv2.LINE_AA)
 
                 x,y = poly.exterior.xy
                 ls = LineString([pt1, pt2])
@@ -351,21 +363,21 @@ class GoBoard:
                     cv2.line(img_lines, pt1, pt2, (0,255, 0), 1)
                     print('skip')
                     continue
-                cv2.imshow("PyGO", img_lines) 
-                cv2.waitKey(1)
+                #cv2.imshow("PyGO", img_lines) 
+                #cv2.waitKey(1)
                     #continue
 
                 if theta > np.pi:
                     theta -= np.pi
                 if np.abs(theta) < np.pi/8:
                     lines_v.append([*pt1, *pt2])
-                    #cv2.line(img_lines, pt1, pt2, (255,0,0), 1)
+                    cv2.line(img_lines, pt1, pt2, (255,0,0), 1)
                 else:
                     lines_h.append([*pt1, *pt2])
-                    #cv2.line(img_lines, pt1, pt2, (0,255,0), 1)
+                    cv2.line(img_lines, pt1, pt2, (0,255,0), 1)
 
         cv2.imshow("PyGO", img_lines) 
-        cv2.waitKey(1000)
+        cv2.waitKey(100)
         lines = intersect(np.array(lines_v), np.array(lines_h))
         #[plt.axline((l[0],l[1]), (l[2],l[3])) for l in lines_v]
         #[plt.axline((l[0],l[1]), (l[2],l[3])) for l in lines_h]
