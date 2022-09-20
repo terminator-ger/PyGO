@@ -4,6 +4,8 @@ from scipy.spatial import  distance_matrix
 from sklearn.cluster import KMeans, AgglomerativeClustering
 from scipy.cluster.hierarchy import linkage, average, fcluster
 import cv2
+import pdb
+from typing import List
 
 def get_ref_go_board_coords(min, max):
     # assume symmectric go board
@@ -19,6 +21,8 @@ def get_ref_go_board_coords(min, max):
     go_board += np.array(min)
     return go_board.reshape(-1,2)
 
+def flattenList(l: List) -> List:
+    return [item for sublist in l for item in sublist]
 
 def toNP(x):
     return x.detach().cpu().numpy()
@@ -120,3 +124,16 @@ def find_src_pt(go, lines):
     nn = lines[nn_idx,:]
     # remove unmatched
     return nn
+
+
+def cv2Input() -> str:
+    ''' blocks until enter is pressed
+    '''
+    _ipt = 0
+    _str = []
+    while (_ipt != 13):
+        _ipt = cv2.waitKey(0)
+        _str.append(chr(_ipt%256) if _ipt > 47 else "")
+    _str = "".join(_str)
+    return _str
+

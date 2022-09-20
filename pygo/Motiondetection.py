@@ -1,8 +1,11 @@
 import numpy as np
 import cv2
+from utils.debug import DebugInfo, DebugInfoProvider
+from utils.typing import Image, B3CImage, Mask
 
-class MotionDetection:
-    def __init__(self, img):
+class MotionDetection(DebugInfoProvider):
+    def __init__(self, img: B3CImage) -> None:
+        super().__init__()
         self.lk_params = dict( winSize  = (15,15),
                   maxLevel = 2,
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
@@ -15,7 +18,7 @@ class MotionDetection:
         self.imgLast = img
         self.hist = 0
 
-    def hasMotion(self, img):
+    def hasMotion(self, img: B3CImage) -> bool:
         img = cv2.resize(img, None, fx=0.25,fy=0.25)
         if img.shape != self.imgLast.shape:
             #first iteration after vp detect
@@ -48,8 +51,9 @@ class MotionDetection:
 
 
 
-class MotionDetectionMOG2:
-    def __init__(self, img, resize=True):
+class MotionDetectionMOG2(DebugInfoProvider):
+    def __init__(self, img: B3CImage, resize:bool = True) -> None:
+        super().__init__()
         self.resize=resize
         if self.resize:
             img = cv2.resize(img, None, fx=0.25,fy=0.25)
@@ -59,7 +63,7 @@ class MotionDetectionMOG2:
         self.fgbg = cv2.createBackgroundSubtractorMOG2()
         self.motion_active = False
 
-    def hasMotion(self, img):
+    def hasMotion(self, img: B3CImage) -> bool:
         if self.resize:
             img = cv2.resize(img, None, fx=0.25,fy=0.25)
         fgmask = self.fgbg.apply(img)
@@ -84,7 +88,7 @@ class MotionDetectionMOG2:
 
         return True
 
-    def getMask(self, img):
+    def getMask(self, img: B3CImage) -> Mask:
         if self.resize:
             img = cv2.resize(img, None, fx=0.25,fy=0.25)
         fgmask = self.fgbg.apply(img)

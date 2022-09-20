@@ -7,18 +7,18 @@ from playsound import playsound
 from sgfmill import sgf
 from utils.color import N2C, C2N
 from typing import List, Tuple, Optional
+from utils.debug import DebugInfo, DebugInfoProvider
+from utils.typing import Move, NetMove
 import pdb
-
-Move = Tuple[str, Tuple(int, int)]
-NetMove = List[str, int, int] # in serial format to be sent over socket
 
 class GameState(Enum):
     RUNNING = 0
     NOT_STARTED = 1
 
 
-class Game:
+class Game(DebugInfoProvider):
     def __init__(self):
+        super().__init__()
         self.state = np.ones((19,19),dtype=np.int64)*2
         self.last_color = 2
         self.last_x = -1
@@ -66,7 +66,7 @@ class Game:
             return None
 
 
-    def updateStateNoChecks(self, state) -> List[str, int, int]:
+    def updateStateNoChecks(self, state) -> NetMove:
         state = state.reshape(19,19)
         idx = np.argwhere(np.abs(self.state-state)>0)
         if len(idx) > 0:

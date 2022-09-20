@@ -53,3 +53,63 @@ def load_training_data2():
     return data, label
 
 
+def load_and_augment_training_data(feat_fn):
+    x_train = []
+    y_train = []
+ 
+   # split patches back into their categories
+    seq = iaa.Sequential([
+        iaa.Fliplr(0.5), # horizontally flip 50% of all images
+        iaa.Flipud(0.5), # vertically flip 20% of all images
+        #iaa.color.MultiplyAndAddToBrightness(),
+        #iaa.color.MultiplyBrightness(mul=(0.8,1.2))
+        iaa.Multiply((0.8, 1.2), per_channel=0.2)
+    ])
+        
+    patches_arr = load_training_data()
+
+    #inflate stone samples
+    def inflate(cls, times):
+        for i in range(times):
+            for c in cls:
+                for p in patches_arr[c]:
+                    p = seq(image=p)
+                    p = toDoubleImage(np.array(p))
+                    x_train.append(p)
+                    y_train.append(c)
+
+    inflate([0,1], 5)#13)
+    inflate([2], 1)
+    inflate([3], 3)
+    inflate([4], 5)#62)
+
+    idx = np.arange(len(x_train))
+    np.random.shuffle(idx)
+    x = [x_train[i] for i in idx]
+    y = [y_train[i] for i in idx]
+    X = []
+    for img in tqdm(x):
+        X.append(feat_fn(img))
+
+    samples = len(x)
+    SPLT = int(0.1*samples)
+
+    #group 
+    X_train = np.array(X[:-SPLT])
+    y_train = np.array(y[:-SPLT])
+    X_test  = np.array(X[-SPLT:])
+    y_test  = np.array(y[-SPLT:])
+
+    def replace(vec, what, wth):
+        vec[vec==what] = wth
+        return vec
+    #y_train = replace(y_train, 3, 2)
+    #y_train = replace(y_train, 4, 2)
+    #y_test = replace(y_test, 3, 2)
+    #y_test = replace(y_test, 4, 2)
+
+    print('No Train Samples: {}'.format(len(X_train)))
+    print('No Test Samples: {}'.format(len(X_test)))
+ 
+    return X_train, y_train, X_test, y_test
+

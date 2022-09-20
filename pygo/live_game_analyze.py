@@ -1,5 +1,6 @@
 from __future__ import division
 from ctypes import resize
+import enum
 import cv2
 import pdb
 import sys
@@ -13,7 +14,9 @@ from classifier import GoClassifier, HaarClassifier, IlluminanceClassifier, Circ
 from Motiondetection import MotionDetectionMOG2
 from GoBoard import GoBoard
 from utils.data import save_training_data
+from utils.misc import flattenList
 from utils.plot import plot_overlay
+from utils.debug import DebugInfo
 from Game import Game, GameState
 from Ensemble import SoftVoting, MajorityVoting
 from Webcam import Webcam
@@ -36,14 +39,12 @@ if __name__ == '__main__':
     webcam = Webcam()
 
     _, img = webcam.read()
-    last_img = img
 
-    MD = MotionDetectionMOG2(last_img)
-    MASKER = MotionDetectionMOG2(last_img, resize=False)
+    MD = MotionDetectionMOG2(img)
+    MASKER = MotionDetectionMOG2(img, resize=False)
     BOARD = GoBoard(webcam.getCalibration())
     GS = Game()
     KATRAIN = None
-    last_move = None
     
     PatchClassifier = [CircleClassifier(BOARD)]
     #PatchClassifier.append(GoClassifier())
@@ -58,15 +59,13 @@ if __name__ == '__main__':
     print('(a)nalyze')
 
     while True:
-        _,img_c = webcam.read()
-        img = img_c
+        _, img = webcam.read()
 
         last_key = cv2.waitKey(1) 
         if last_key == ord('c'):
             print('Calibration')
             BOARD.calib(img)
             img = BOARD.extract(img)
-            last_move = img
       
         elif last_key == ord('t'):
             print("Train classifier")
@@ -77,9 +76,7 @@ if __name__ == '__main__':
             print('Generate training data \n Place stones in training pattern - Press (c)ontinue')
             patches = []
             while True:
-                ret, img_c = webcam.read()
-                #img = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
-                img = img_c
+                ret, img = webcam.read()
                 last_key = cv2.waitKey(1) 
 
                 if not BOARD.hasEstimate:
@@ -120,19 +117,12 @@ if __name__ == '__main__':
                 KATRAIN.close()
             break
         elif last_key == ord('d'):
-            print('Calibration')
-            BOARD.calib(img)
-      
-            print('DEBUG - Tests')
-            GS.startNewGame(19)
-           # GS.set("B", [1,1])
-            GS.set("B", [1,0])
-            GS.set("W", [0,0])
-            #GS.set("W", [0,1])
+            debug = DebugInfo([MD, MASKER, BOARD, GS, PatchClassifier[0]])
+            debug.showOptions()
         
         if BOARD.hasEstimate:
             img = BOARD.extract(img)
-            cv2.imwrite('out.png', img)
+            #cv2.imwrite('out.png', img)
             if not MD.hasMotion(img):
                 #mask = cv2.pyrMeanShiftFiltering(img, 5, 80, 3)
                 #plt.imshow(mask)

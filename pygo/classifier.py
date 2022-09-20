@@ -1,6 +1,8 @@
 from __future__ import division
 
 from requests import patch
+from GoBoard import GoBoard
+from utils.debug import DebugInfo, DebugInfoProvider
 from utils.image import toHSVImage
 from tqdm import tqdm
 import cv2
@@ -22,6 +24,7 @@ import torch as th
 import torch.nn.functional as F
 from tqdm import tqdm
 from sklearn.cluster import KMeans
+from enum import Enum, auto
 
 
 from sklearn.ensemble import RandomForestClassifier
@@ -30,76 +33,19 @@ from skimage.transform import integral_image
 from skimage.feature import haar_like_feature
 from skimage.feature import haar_like_feature_coord
 from utils.image import toCMYKImage, toGrayImage, toColorImage, toDoubleImage, toByteImage
-from utils.data import load_training_data, save_training_data, load_training_data2
+from utils.data import load_training_data, save_training_data, load_training_data2, load_and_augment_training_data
 from sklearn.svm import SVC
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from pyELSD.pyELSD import PyELSD
 import warnings
+
+
+from utils.typing import B3CImage, GoBoardClassification
 warnings.filterwarnings('always') 
 def toNP(x):
     return x.detach().cpu().numpy()
 
-
-def load_and_augment_training_data(feat_fn):
-    x_train = []
-    y_train = []
- 
-   # split patches back into their categories
-    seq = iaa.Sequential([
-        iaa.Fliplr(0.5), # horizontally flip 50% of all images
-        iaa.Flipud(0.5), # vertically flip 20% of all images
-        #iaa.color.MultiplyAndAddToBrightness(),
-        #iaa.color.MultiplyBrightness(mul=(0.8,1.2))
-        iaa.Multiply((0.8, 1.2), per_channel=0.2)
-    ])
-        
-    patches_arr = load_training_data()
-
-    #inflate stone samples
-    def inflate(cls, times):
-        for i in range(times):
-            for c in cls:
-                for p in patches_arr[c]:
-                    p = seq(image=p)
-                    p = toDoubleImage(np.array(p))
-                    x_train.append(p)
-                    y_train.append(c)
-
-    inflate([0,1], 5)#13)
-    inflate([2], 1)
-    inflate([3], 3)
-    inflate([4], 5)#62)
-
-    idx = np.arange(len(x_train))
-    np.random.shuffle(idx)
-    x = [x_train[i] for i in idx]
-    y = [y_train[i] for i in idx]
-    X = []
-    for img in tqdm(x):
-        X.append(feat_fn(img))
-
-    samples = len(x)
-    SPLT = int(0.1*samples)
-
-    #group 
-    X_train = np.array(X[:-SPLT])
-    y_train = np.array(y[:-SPLT])
-    X_test  = np.array(X[-SPLT:])
-    y_test  = np.array(y[-SPLT:])
-
-    def replace(vec, what, wth):
-        vec[vec==what] = wth
-        return vec
-    #y_train = replace(y_train, 3, 2)
-    #y_train = replace(y_train, 4, 2)
-    #y_test = replace(y_test, 3, 2)
-    #y_test = replace(y_test, 4, 2)
-
-    print('No Train Samples: {}'.format(len(X_train)))
-    print('No Test Samples: {}'.format(len(X_test)))
- 
-    return X_train, y_train, X_test, y_test
 
 class Classifier:
     def predict(self, patches):
@@ -114,8 +60,16 @@ class Classifier:
     def store(self):
         raise NotImplementedError()
 
-class CircleClassifier(Classifier):
-    def __init__(self, BOARD) -> None:
+class debugkeys(Enum):
+    Mask_Black = auto()
+    Mask_White = auto()
+    Detected_Intensities = auto()
+    IMG_B = auto()
+    IMG_W = auto()
+
+class CircleClassifier(Classifier, DebugInfoProvider):
+    def __init__(self, BOARD:GoBoard) -> None:
+        super().__init__()
         self.elsd = PyELSD()
         self.hasWeights = True
         self.BOARD=BOARD
@@ -140,7 +94,11 @@ class CircleClassifier(Classifier):
         self.params.minInertiaRatio = 0.1
         self.params.maxInertiaRatio = 1.0
 
-    def predict__(self, img):
+        for key in debugkeys:        
+            self.available_debug_info[key.name] = False
+
+
+    def predict__(self, img: B3CImage):
         img_c = img.copy()
         img = toGrayImage(img)
         img_w = cv2.adaptiveThreshold(img, 255,
@@ -214,10 +172,9 @@ class CircleClassifier(Classifier):
 
 
 
-    def predict(self, img):
-
-
+    def predict(self, img: B3CImage) -> GoBoardClassification:
         img_c = img.copy()
+
         img = toHSVImage(img_c.copy())[:,:,2]
         img2 = toHSVImage(img_c.copy())[:,:,1]
         value = toHSVImage(img_c.copy())[:,:,2]
@@ -233,12 +190,12 @@ class CircleClassifier(Classifier):
                                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
                                 cv2.THRESH_BINARY, 
                                 31, 0)
-
-        #element = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
-        #                                    (3,3))
-
-        #img_b = cv2.morphologyEx(img_b, cv2.MORPH_CLOSE, element)
-        #img_w = cv2.morphologyEx(img_w, cv2.MORPH_CLOSE, element)
+        if self.available_debug_info[debugkeys.IMG_B.name]:
+            cv2.imshow("IMG_B", img_b)
+            cv2.waitKey(1)
+        if self.available_debug_info[debugkeys.IMG_W.name]:
+            cv2.imshow("IMG_W", img_w)
+            cv2.waitKey(1)
 
         def watershed(fg):
             fg = toByteImage(fg)
@@ -279,9 +236,13 @@ class CircleClassifier(Classifier):
                 crl = np.array([kp.pt[0], kp.pt[1], kp.size])
                 print(crl)
                 detected_circles.append([crl])
-        
-        cv2.imshow('Maskb', mask_b)
-        cv2.imshow('Maskw', mask_w)
+
+        if self.available_debug_info[debugkeys.Mask_Black.name]:
+            cv2.imshow('Maskb', mask_b)
+            cv2.waitKey(1)
+        if self.available_debug_info[debugkeys.Mask_White.name]:
+            cv2.imshow('Maskw', mask_w)
+            cv2.waitKey(1)
         
  
         font                   = cv2.FONT_HERSHEY_SIMPLEX
@@ -319,8 +280,9 @@ class CircleClassifier(Classifier):
 
         for circles in detected_circles:
             analyse(circles)
-        cv2.imshow('Debug', img_c)
-        cv2.waitKey(1)
+        if self.available_debug_info[debugkeys.Detected_Intensities.name]:
+            cv2.imshow('Detected Intensities', img_c)
+            cv2.waitKey(1)
         return val.astype(int)
 
 
