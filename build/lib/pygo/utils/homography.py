@@ -1,8 +1,8 @@
 import numpy as np
-from pygo.utils.image import toGrayImage
+from utils.image import toGrayImage
 import cv2
 
-def compute_homography(image, vp1, vp2, clip=True, clip_factor=3):
+def compute_homography_and_warp(image, vp1, vp2, clip=True, clip_factor=3):
     """Compute homography from vanishing points and warp the image.
     It is assumed that vp1 and vp2 correspond to horizontal and vertical
     directions, although the order is not assumed.
@@ -97,10 +97,5 @@ def compute_homography(image, vp1, vp2, clip=True, clip_factor=3):
 
     final_homography = np.dot(T, inter_matrix)
 
-    return final_homography, (max_x, max_y)
-
-
-def compute_homography_and_warp(image, vp1, vp2, clip=True, clip_factor=3):
-    final_homography, (max_x, max_y) = compute_homography(image, vp1, vp2)
     warped_img = cv2.warpPerspective(image, (final_homography), (max_x, max_y))
     return warped_img, final_homography, (max_x, max_y)

@@ -1,21 +1,19 @@
 from enum import Enum
 
-def N2C(n: int) -> str:
-    if n == 0:
+def N2C(c):
+    if c == 0:
         c_str = 'W' 
-    elif n == 1:
+    elif c == 1:
         c_str = 'B' 
-    elif n == 2:
+    elif c == 2:
         c_str = 'E' 
     return c_str
-
-
-def C2N(c: str) -> int:
-    if c.upper() == 'W':
+def C2N(c):
+    if c == 'W':
         return 0
-    elif c.upper() == 'B':
+    elif c == 'B':
         return 1
-    elif c.upper() == 'E':
+    elif c == 'E':
         return 2
 
 class COLOR(Enum):

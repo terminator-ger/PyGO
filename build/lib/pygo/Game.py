@@ -1,4 +1,3 @@
-import enum
 from os import remove
 import random
 from re import A
@@ -14,8 +13,9 @@ import pdb
 import cv2
 import logging
 
+
 from pygo.utils.image import toByteImage
-from pygo.utils.color import N2C, C2N, COLOR
+from pygo.utils.color import N2C, C2N
 from pygo.utils.debug import DebugInfo, DebugInfoProvider
 from pygo.utils.typing import Move, NetMove, GoBoardClassification
 
@@ -69,7 +69,7 @@ class Game(DebugInfoProvider):
             self.GS = GameState.NOT_STARTED
             self.sgf = None
 
-    def _test_set(self, stone, coords) -> None:
+    def set(self, stone, coords) -> None:
         x = coords[0]
         y = coords[1]
         c_str = stone
@@ -157,14 +157,11 @@ class Game(DebugInfoProvider):
     
     def updateStateWithChecks(self, state) -> NetMove:
         state = self._check_move_validity(state)
-        logging.debug(state)
 
         diff = np.count_nonzero(np.abs(self.state-state))
         idx = np.argwhere(np.abs(self.state-state)>0)
         seq = self.sgf.get_main_sequence()
-
         isInTree, notInTree = self.whichMovesAreInTheGameTree(state)
-        
         logging.debug('{} different moves found'.format(diff))
         if diff == 1:
             # either one stone added -> regular move or
@@ -175,7 +172,7 @@ class Game(DebugInfoProvider):
 
             if c != self.last_color and c == 2:
                 # Disable undo for live games -> increase stability 
-                self._undoLastMove(x, y, c_str)
+                #self._undoLastMove(x, y, c_str)
                 return ["", -1, -1]
 
             elif c != self.last_color and c in [0,1]:
@@ -185,28 +182,42 @@ class Game(DebugInfoProvider):
                 self._setStone(x, y, c_str)
                 return [c_str.lower(), x, y]
 
-        #elif diff == 2 and len(isInTree) == 1:
-        #    # we moved the last stone
-        #    self.sgf_node.reparent(self.sgf_node.parent, -1)
-        #    rnd = random.randint(1,5) 
-        #    playsound('sounds/stone{}.wav'.format(rnd))
+        elif diff == 2:
+            #either one captured stone or we moved the last one
+            if len(isInTree) == 1:
+                # we moved the last stone
+                self.sgf_node.reparent(self.sgf_node.parent, -1)
+                rnd = random.randint(1,5) 
+                playsound('sounds/stone{}.wav'.format(rnd))
+                c_str, (x,y) = isInTree.pop(0)
+                self._undoLastMove(x, y, c_str)
+                c_str, (x,y) = notInTree.pop(0)
+                self._setStone(x, y, c_str)
+                return [c_str.lower(), x, y]
 
-        #    idx = np.argwhere([C2N(x[0]) == 'E' for x in notInTree])
-        #    c_str, (x,y) = isInTree.pop(0)
-        #    self._undoLastMove(x, y, c_str)
-        #    c_str, (x,y) = notInTree.pop(0)
-        #    self._setStone(x, y, c_str)
-        #    return [c_str.lower(), x, y]
-
+            else:
+                # we need at least one removed stone and one added stone..
+                if np.sum([x[0] != 'E' for x in notInTree]) == 1:
+                    nm = self.nextMove()
+                    idx = np.argwhere([C2N(x[0]) == nm for x in notInTree])
+                    if len(idx) > 0:
+                        c_str, (x,y) = notInTree.pop(idx.squeeze())
+                        # stones that was captured
+                        # upon faulty state we would simply copy it ...
+                        # TODO: implement capute check and ko check...
+                        self._captureStone(x, y)
+                        c_str, (x,y) = notInTree.pop(0)
+                        self._setStone(x, y, c_str)
+                        playsound('sounds/capturing.wav')
+                        return [c_str.lower(), x, y]
         else:
             if np.sum([x[0] != 'E' for x in notInTree]) == 1:
                 nm = self.nextMove()
                 idx = np.argwhere([C2N(x[0]) == nm for x in notInTree])
                 if len(idx) > 0:
                     move = notInTree.pop(idx.squeeze())
-
-                    for [color, removed] in notInTree:
-                            self._captureStone(removed[0],removed[1])
+                    for [_,removed] in notInTree:
+                        self._captureStone(removed[0],removed[1])
 
                     # stones where captured
                     c_str = move[0]
@@ -214,17 +225,6 @@ class Game(DebugInfoProvider):
                     self._setStone(x, y, c_str)
                     playsound('sounds/capturing.wav')
                     return [c_str.lower(), x, y]    
-                else:
-                    #last stone was moved
-                    idx = np.argwhere([C2N(x[0]) == self.last_color for x in notInTree])
-                    move = notInTree.pop(idx.squeeze())
-                    [c_str, removed] = notInTree.pop(0)
-                    self._undoLastMove(removed[0],removed[1], c_str)
-                    c_str = move[0]
-                    (x,y) = move[1]
-                    self._setStone(x, y, c_str)
-                    playsound('sounds/stone1.wav')
-                    return [c_str.lower(), x, y]
 
     def setManual(self, x:int ,y:int) -> None:
         ''' 
@@ -316,8 +316,8 @@ class Game(DebugInfoProvider):
         B = np.zeros_like(state)
         W = np.zeros_like(state)
 
-        B[state==COLOR.BLACK.value] = 1
-        W[state==COLOR.WHITE.value] = 1
+        B[state==0] = 1
+        W[state==1] = 1
         #pdb.set_trace()
         _, markersB = cv2.connectedComponents(toByteImage(B))
         _, markersW = cv2.connectedComponents(toByteImage(W))
@@ -349,26 +349,17 @@ class Game(DebugInfoProvider):
         markersW -= 1
         return markersB, markersW, count_b, count_w
 
-    def _check_move_validity(self, newState: GoBoardClassification) -> GoBoardClassification:
-        '''
-            We expect that the user is able to undo his last move without manual interaction 
-            with the user inface (back buttons will be provided). 
-            We reduce the ammount of false positive by checking for previously placed stones
-            and do not allow their removal until they are are captured.
-
-        '''
-
-        changes = []
+    def _check_move_validity(self, newState: GoBoardClassification):
 
         isInTree, notInTree = self.whichMovesAreInTheGameTree(newState)
         old_markers_b, old_markers_w, count_b, count_w = self.__countLiberties(self.state)
 
         for (c_str, (x,y)) in isInTree:
             # when the stone was removed check the previous state
-            if c_str == 'B':
+            if c_str == 'b':
                 id = old_markers_b[x,y]
                 liberties = count_b[id]
-            elif c_str =='W':
+            else:
                 id = old_markers_w[x,y]
                 liberties = count_w[id]
              
@@ -377,56 +368,7 @@ class Game(DebugInfoProvider):
                 # remove this move revert to old state
                 newState[x,y] = self.state[x,y]
 
-        
-        # options 
-        # a) the same stone was moved -> correction
-        # b) one stone was placed either 
-        # b-a) capturing n other stones
-        # b-b) capturing no other stones but m other stones failed being detected
-        # b-c) a mixture of b-a) and b-b)
-            
-        added_next_color = [x for x in notInTree if x[0] not in ['E', N2C(self.last_color)]]
-        added_old_color = [x for x in notInTree if x[0] == N2C(self.last_color)]
-        removed = [x for x in notInTree if x[0] == 'E']
-
-
-        if len(added_old_color) == 1 and len(removed) == 1 and len(added_next_color) == 0: 
-            added = added_old_color[0]
-            removed = removed[0]
-            if (removed[1][0] == self.last_x and removed[1][1] == self.last_y):
-                # case a)
-                return newState
-
-        elif len(added_next_color) == 1 and len(added_old_color) == 0:
-            # apply adding of stone and check liberties
-            tempState = self.state.copy()
-            c_str, (x,y) = added_next_color[0]
-            tempState[x,y] = C2N(c_str)
-            old_markers_b, old_markers_w, count_b, count_w = self.__countLiberties(tempState)
-
-            # check that we have not forgotten to remove a stone neighbouring the new placed one
-            markers, count = (old_markers_b, count_b) if added_next_color[0] == 'B' else (old_markers_w, count_w)
-            for groupId, cnt in enumerate(count):
-                if cnt == 0:
-                    #remove group
-                    idx = np.argwhere(markers == groupId)
-                    for x,y in idx:
-                        newState[x,y] = COLOR.NONE.value
-
-            if len(removed) > 0:
-                #check all removed stones for validity
-                markers, count = (old_markers_b, count_b) if removed[0] == 'B' else (old_markers_w, count_w)
-                for _, (rx,ry) in removed:
-                    if markers[rx,ry] > -1:
-                        if count[markers[rx,ry]] == 0:
-                            # case b-a)
-                            pass
-                        else:
-                        # count[markers[rx, ry]] > 0:
-                            # case b-b) -> undo removal of stone
-                            newState[rx, ry] = self.state[rx, ry]
-
-        return newState
+        return newState 
 
 
  

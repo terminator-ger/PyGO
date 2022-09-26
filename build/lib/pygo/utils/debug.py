@@ -5,9 +5,9 @@ import cv2
 from typing import Optional, List, Dict, Tuple
 from enum import Enum
 import pdb
+from utils.misc import cv2Input, flattenList
 import logging
-from pygo.utils.misc import cv2Input, flattenList
-from pygo.utils.typing import Image
+from utils.typing import Image
 
 class DebugInfoProvider:
     def __init__(self) -> None:

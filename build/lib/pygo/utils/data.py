@@ -2,7 +2,7 @@ import os
 import cv2
 import numpy as np
 import pdb
-from pygo.utils.image import toColorImage
+from utils.image import toColorImage
 
 def load_training_data_old(classes):
     x = []

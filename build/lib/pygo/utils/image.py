@@ -35,9 +35,6 @@ def C2N(c):
 def toNP(x):
     return x.detach().cpu().numpy()
 
-def toBoolImage(image):
-    img = toByteImage(image)
-    return img.astype(np.bool)
 
 def toByteImage(image):
     '''
@@ -84,10 +81,8 @@ def toGrayImage(image):
     :return:
     '''
     if len(np.shape(image))>2:
-        return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    else:
-        return image.copy()
-
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    return image
 
 def toColorImage(image):
     '''
@@ -97,10 +92,8 @@ def toColorImage(image):
     :return:
     '''
     if len(np.shape(image)) == 2:
-         ret = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-    else:
-        ret = image.copy()
-    return ret
+         image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    return image
 
 
 # Load image

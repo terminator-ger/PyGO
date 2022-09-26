@@ -6,13 +6,13 @@ from inpoly import inpoly2
 from lu_vp_detect import VPDetection
 from skimage import data, color, img_as_ubyte, exposure, transform, img_as_float
 from pygo.utils.debug import DebugInfo, DebugInfoProvider
-from pygo.utils.homography import compute_homography_and_warp, compute_homography
+from pygo.utils.homography import compute_homography_and_warp
 import matplotlib.pyplot as plt
 import math
 from pygo.utils.line import intersect, is_line_within_board, warp_lines
 from pygo.utils.misc import get_ref_go_board_coords, find_src_pt, mask_board
 from pygo.utils.plot import plot_grid
-from pygo.utils.image import toByteImage, toCMYKImage, toGrayImage
+from pygo.utils.image import toByteImage, toCMYKImage
 from pycpd import AffineRegistration, RigidRegistration, DeformableRegistration
 from functools import partial
 from shapely.geometry import Polygon, LineString
@@ -20,7 +20,7 @@ from pygo.CameraCalib import CameraCalib
 from typing import Optional, Tuple, List
 import pdb
 import logging
-from pygo.utils.typing import B1CImage, B3CImage, Point2D, Point3D, Image, Mask, B1CImage, Corners
+from pygo.utils.typing import B1CImage, Point2D, Point3D, Image, Mask, B1CImage, Corners
 from pygo.utils.image import toColorImage
 from nptyping import NDArray
 from enum import Enum, auto
@@ -143,9 +143,8 @@ class GoBoard(DebugInfoProvider):
                     peri = cv2.arcLength(cnt, True)
                     approx = cv2.approxPolyDP(cnt, eps * peri, True)
                     # debug output
-                    #output = cv2.cvtColor(img.copy(), cv2.COLOR_GRAY2RGB)
-                    #cv2.drawContours(output, [approx], -1, (0, 255, 0), 3)
-
+                    output = cv2.cvtColor(img.copy(), cv2.COLOR_GRAY2RGB)
+                    cv2.drawContours(output, [approx], -1, (0, 255, 0), 3)
                     #text = "eps={:.4f}, num_pts={}".format(eps, len(approx))
                     #cv2.putText(output, text, (0, 0), cv2.FONT_HERSHEY_SIMPLEX,\
                     #    0.9, (0, 255, 0), 2)
@@ -232,38 +231,21 @@ class GoBoard(DebugInfoProvider):
 
         corners = self.get_corners(vp1, vp2, img_bw)
         if corners is None:
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+            kernelSizes = [(3,3), (3,3), (3,3)]#(5, 5), (7, 7)]
             # loop over the kernels sizes
-            for _ in range(3):
-                cv2.morphologyEx(src=img_bw, dst=img_bw, op=cv2.MORPH_OPEN, kernel=kernel)
+            for kernelSize in kernelSizes:
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, kernelSize)
+                img_bw = cv2.morphologyEx(img_bw, cv2.MORPH_OPEN, kernel)
                 corners = self.get_corners(vp1, vp2, img_bw)
                 #up to threee filter layers
                 if corners is not None:
                    break
 
-        logging.debug('Corners {}'.format(corners))
         #plt.imshow(img_bw)
         #plt.scatter(corners[:,0], corners[:,1])
         #plt.show()
  
         return corners
-
-    def get_corners_overlay(self, img: B3CImage) -> NDArray:
-        img_gray = toGrayImage(img)
-        vp1, vp2 = self.get_vp(img_gray)
-        thresh, img_bw = cv2.threshold(img_gray, \
-                                    0, \
-                                    255, \
-                                    cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
-        # assumption most lines in the image are from the go board -> vp give us the plane
-        # the contour which belongs to those vp is the board
-        corners = self.detect_board_corners(vp1, vp2, img_bw)
-        if corners is not None:
-            corners = np.int32([corners])
-            cv2.fillPoly(img, corners, color=(0,255,0))
-            
-        return img
-
 
     def get_vp(self, img: B1CImage) -> Tuple[Point3D, Point3D]:
         van_points = self.vp.find_vps(img)
@@ -278,7 +260,7 @@ class GoBoard(DebugInfoProvider):
         return vp1, vp2
     
     def calib(self, img: Image) -> None:
-        #img_c = img
+        img_c = img
         if len(img.shape) == 3:
             h,w,c = img.shape
             #instead of the grayscale variant extract the red part
@@ -303,7 +285,7 @@ class GoBoard(DebugInfoProvider):
         # the contour which belongs to those vp is the board
         corners = self.detect_board_corners(vp1, vp2, img_bw.copy())
         if corners is None:
-            logging.warning('Calib Failed - No corners detected')
+            logging.warning('Calib Failed')
             return
         mask = np.zeros((img_bw.shape),np.uint8)
         mask = cv2.fillConvexPoly(mask, corners.astype(int), 255)
@@ -322,27 +304,29 @@ class GoBoard(DebugInfoProvider):
 
         vp1 = np.median(np.array(vps_list_1), axis=0)
         vp2 = np.median(np.array(vps_list_2), axis=0)
-        img_c = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        img_c = cv2.cvtColor(img.copy(), cv2.COLOR_GRAY2RGB)
+        #cv2.drawContours(img_c, np.array([corners.astype(int)]), -1, (255, 255, 255), -1, cv2.LINE_AA)
         img_c = cv2.polylines(img_c, np.array([corners.astype(int)]), True, (0, 255, 255), 1)
-
-        H, img_limits = compute_homography(img_c, vp1, vp2, clip=False, clip_factor=1)
+        warped_img, H, img_limits = compute_homography_and_warp(img_c.copy(), vp1, vp2, clip=False, clip_factor=1)
+        #warped_img, H, img_limits = compute_homography_and_warp(img, vp1, vp2, clip=False, clip_factor=1)
         self.img_limits = img_limits
 
+        img_c = cv2.warpPerspective(img_c, H, img_limits)
         img_cw = cv2.warpPerspective(img_bw, H, img_limits)
-        cv2.warpPerspective(src=img_c, dst=img_c, M=H, Size=img_limits)
-        cv2.warpPerspective(src=mask, dst=mask, M=H, Size=img_limits)
+        img_cw2 = cv2.warpPerspective(img, H, img_limits)
+        mask = cv2.warpPerspective(mask, H, img_limits)
 
         # warp corners
         corners_w = warp_lines(corners, H)
         
-        #for i in range(7):
-            # inplace
-        cv2.dilate(src=mask, 
-                   dst=mask, 
-                   kernel=np.ones((3,3), dtype=np.uint8),
-                   iterations=7)
-
+        #cv2.drawContours(mask,[best_cnt],0,255,-1)
+        #cv2.drawContours(mask,[best_cnt],0,0,2)
+        for i in range(7):
+            mask = cv2.dilate(mask, np.ones((3,3), dtype=np.uint8))
         img_cw[mask==0] = 0
+        img_dcw = np.asarray(img_cw, dtype=np.double, order='C')
+        #plt.imshow(img_cw)
+        #plt.show()
         thresh, img_cw = cv2.threshold(img_cw, \
                                     0, \
                                     255, \
@@ -381,8 +365,8 @@ class GoBoard(DebugInfoProvider):
                 pt2 = (int(x0 - 1000*(-b)), int(y0 - 1000*(a)))
                 #cv2.line(img_dcw, pt1, pt2, (255,255,255), 1, cv2.LINE_AA)
 
-                #x,y = poly.exterior.xy
-                #ls = LineString([pt1, pt2])
+                x,y = poly.exterior.xy
+                ls = LineString([pt1, pt2])
                 #plt.plot(x,y)
                 #x,y = ls.coords.xy
                 #plt.plot(x,y)
@@ -390,11 +374,9 @@ class GoBoard(DebugInfoProvider):
                 #plt.show()
 
                 if poly.crosses(LineString([pt1, pt2])):
-                    if self.available_debug_info[debugkeys.Detected_Lines.name]:
-                        cv2.line(img_lines, pt1, pt2, (0,0,255), 1)
+                    cv2.line(img_lines, pt1, pt2, (0,0,255), 1)
                 else:
-                    if self.available_debug_info[debugkeys.Detected_Lines.name]:
-                        cv2.line(img_lines, pt1, pt2, (0,255, 0), 1)
+                    cv2.line(img_lines, pt1, pt2, (0,255, 0), 1)
                     logging.debug('skip')
                     continue
                 #cv2.imshow("PyGO", img_lines) 
@@ -405,15 +387,13 @@ class GoBoard(DebugInfoProvider):
                     theta -= np.pi
                 if np.abs(theta) < np.pi/8:
                     lines_v.append([*pt1, *pt2])
-                    if self.available_debug_info[debugkeys.Detected_Lines.name]:
-                        cv2.line(img_lines, pt1, pt2, (255,0,0), 1)
+                    cv2.line(img_lines, pt1, pt2, (255,0,0), 1)
                 else:
                     lines_h.append([*pt1, *pt2])
-                    if self.available_debug_info[debugkeys.Detected_Lines.name]:
-                        cv2.line(img_lines, pt1, pt2, (0,255,0), 1)
-
+                    cv2.line(img_lines, pt1, pt2, (0,255,0), 1)
 
         self.showDebug(debugkeys.Detected_Lines.name, img_lines)
+
         lines = intersect(np.array(lines_v), np.array(lines_h))
         #[plt.axline((l[0],l[1]), (l[2],l[3])) for l in lines_v]
         #[plt.axline((l[0],l[1]), (l[2],l[3])) for l in lines_h]
@@ -429,6 +409,28 @@ class GoBoard(DebugInfoProvider):
         self.grid = get_ref_go_board_coords(np.min(lines, axis=0), np.max(lines, axis=0))
         # warp back to original images
         lines_raw_orig = cv2.perspectiveTransform(lines[:,None,:], np.linalg.inv(H)).squeeze()
+
+        #pdb.set_trace()        
+        #plt.scatter(lines[:,0], lines[:,1])
+        #plt.imshow(img_dcw)
+        #plt.show()
+
+        #lines_warpedV = []
+        #lines_warpedH = []
+
+        #for lines in lines_vp:
+        #    lines_warpedV.append(cv2.perspectiveTransform(np.stack(lines[0]).reshape(-1,1,2), H).reshape(-1,4))
+        #    lines_warpedH.append(cv2.perspectiveTransform(np.stack(lines[1]).reshape(-1,1,2), H).reshape(-1,4))
+
+        #lines_raw_orig = cluster(lines[0], lines[1])
+        #lines = cluster(lines_warpedH[0], lines_warpedV[0])
+        #lines = clear(lines)
+
+
+        #img_max = (img_cw.shape[1], img_cw.shape[0])
+        #img_min = (0,0)
+    
+        #img_cw = cv2.warpPerspective(img, H, img_limits)
 
         def visualize(iteration, error, X, Y, ax):
             #if iteration % 50 == 0:
@@ -460,18 +462,22 @@ class GoBoard(DebugInfoProvider):
         R[0:2,0:2]=param[0]
         R[0:2,2]=param[1]
 
-        pdb.set_trace()
+
         w_board = cv2.transform(np.array([self.grid]), (R))[0][:,:2]
         ow_board = cv2.perspectiveTransform(np.array([self.grid]), R@np.linalg.inv(H))[0]
 
+        img_grid = plot_grid(img.copy(), ow_board.reshape(-1,2))
+        #cv2.imshow('PyGO', img_grid)
+        #cv2.waitKey(500)        
+    
         src_pt = find_src_pt(ow_board, lines_raw_orig)
         H_refined = cv2.findHomography(src_pt, ow_board)[0]
         w_board = cv2.perspectiveTransform(np.array([self.grid]), R @ np.linalg.inv(H) @ np.linalg.inv(H_refined))[0]
 
         H_refined = R @ np.linalg.inv(H) @ np.linalg.inv(H_refined)
-        
-        if self.available_debug_info[debugkeys.Detected_Grid.name]:
-            img_grid = plot_grid(img.copy(), w_board.reshape(-1,2))
+
+        img_grid = plot_grid(img.copy(), w_board.reshape(-1,2))
+
         self.showDebug(debugkeys.Detected_Grid.name, img_grid)
 
         self.H = H_refined 
