@@ -3,7 +3,7 @@ from distutils.log import debug
 import numpy as np
 import cv2
 from inpoly import inpoly2
-from lu_vp_detect import VPDetection
+from lu_vp_detect import VPDetection, LS_ALG
 from skimage import data, color, img_as_ubyte, exposure, transform, img_as_float
 from pygo.utils.debug import DebugInfo, DebugInfoProvider
 from pygo.utils.homography import compute_homography_and_warp, compute_homography
@@ -18,6 +18,7 @@ from functools import partial
 from shapely.geometry import Polygon, LineString
 from pygo.CameraCalib import CameraCalib
 from typing import Optional, Tuple, List
+import matplotlib.pyplot as plt
 import pdb
 import logging
 from pygo.utils.typing import B1CImage, B3CImage, Point2D, Point3D, Image, Mask, B1CImage, Corners
@@ -39,7 +40,8 @@ class GoBoard(DebugInfoProvider):
         self.H = np.eye(3)
         self.vp = VPDetection(focal_length=CameraCalib.focal, 
                               principal_point=CameraCalib.center, 
-                              length_thresh=10)
+                              length_thresh=20)
+                              #line_search_alg=LS_ALG.HOUGH)
         self.grid = None
         self.go_board_shifted = None
         self.hasEstimate = False
@@ -118,7 +120,9 @@ class GoBoard(DebugInfoProvider):
         img: thresholded image of the board
         '''
 
-        contours, hierarchy = cv2.findContours(img, 1, 2)
+        contours, hierarchy = cv2.findContours(img, 
+                                                cv2.RETR_EXTERNAL, 
+                                                cv2.CHAIN_APPROX_SIMPLE)
         # vp1 and vp2 are the horizontal and vertical vps
         min_dist = 10000
         corners = []
@@ -129,6 +133,8 @@ class GoBoard(DebugInfoProvider):
         min_area = np.prod(img.shape)
         logging.debug("Min Area: {}".format(min_area))
         for c, cnt in enumerate(contours):
+            if len(cnt) < 4:
+                continue
             img_out = img
             #expect at least half
             area = cv2.contourArea(cnt)
@@ -143,16 +149,16 @@ class GoBoard(DebugInfoProvider):
                     peri = cv2.arcLength(cnt, True)
                     approx = cv2.approxPolyDP(cnt, eps * peri, True)
                     # debug output
-                    #output = cv2.cvtColor(img.copy(), cv2.COLOR_GRAY2RGB)
+                    output = cv2.cvtColor(img.copy(), cv2.COLOR_GRAY2RGB)
                     #cv2.drawContours(output, [approx], -1, (0, 255, 0), 3)
+                    #cv2.imshow("PyGO2", output)
+                    #cv2.waitKey(50)
 
                     #text = "eps={:.4f}, num_pts={}".format(eps, len(approx))
                     #cv2.putText(output, text, (0, 0), cv2.FONT_HERSHEY_SIMPLEX,\
                     #    0.9, (0, 255, 0), 2)
                     ## show the approximated contour image
                     #print("[INFO] {}".format(text))
-                    #cv2.imshow("PyGO", output)
-                    #cv2.waitKey(50)
                     # debug output end
 
                     if len(approx) == 4:
@@ -212,12 +218,12 @@ class GoBoard(DebugInfoProvider):
                     dist = d1 + d2 + d3 + d4
                     if dist < min_dist:
                         min_dist = dist
-                        image = cv2.drawContours(img_out, contours, c, (0, 255, 0), 3)
+                        #image = cv2.drawContours(img_out, contours, c, (0, 255, 0), 3)
                         #cv2.imshow('',image)
                         #cv2.waitKey(1000)
 
-                        best_image = image
-                        best_cnt = cnt
+                        #best_image = image
+                        #best_cnt = cnt
                         #print(area)
                         corners = [leftmost, topmost, rightmost, bottommost]
                         corners_mat = np.array(corners)
@@ -231,6 +237,11 @@ class GoBoard(DebugInfoProvider):
     def detect_board_corners(self, vp1: Point2D, vp2: Point2D, img_bw: B1CImage) -> NDArray:
 
         corners = self.get_corners(vp1, vp2, img_bw)
+        #pdb.set_trace()
+        #plt.imshow(img_bw)
+        #plt.scatter(corners[:,0], corners[:,1])
+        #plt.show()
+
         if corners is None:
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
             # loop over the kernels sizes
@@ -242,15 +253,16 @@ class GoBoard(DebugInfoProvider):
                    break
 
         logging.debug('Corners {}'.format(corners))
-        #plt.imshow(img_bw)
-        #plt.scatter(corners[:,0], corners[:,1])
-        #plt.show()
  
         return corners
 
     def get_corners_overlay(self, img: B3CImage) -> NDArray:
         img_gray = toGrayImage(img)
         vp1, vp2 = self.get_vp(img_gray)
+        #print(vp1, vp2)
+        #vpd = self.vp.create_debug_VP_image()
+        #cv2.imshow('New', vpd)
+        #cv2.waitKey(1)
         thresh, img_bw = cv2.threshold(img_gray, \
                                     0, \
                                     255, \
@@ -260,15 +272,14 @@ class GoBoard(DebugInfoProvider):
         corners = self.detect_board_corners(vp1, vp2, img_bw)
         if corners is not None:
             corners = np.int32([corners])
-            cv2.fillPoly(img, corners, color=(0,255,0))
+            cv2.polylines(img, corners, color=(0,255,0), isClosed=True, thickness=3)
             
         return img
 
 
     def get_vp(self, img: B1CImage) -> Tuple[Point3D, Point3D]:
         van_points = self.vp.find_vps(img)
-        vpd = self.vp.create_debug_VP_image()
-        lines_vp = []
+        #lines_vp = []
         vps = self.vp.vps_2D
         vp3d = self.vp.vps
         vert_vp = np.argmax(np.abs(vp3d[:,2]))

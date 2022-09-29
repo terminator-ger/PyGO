@@ -31,3 +31,5 @@ GoBoardClassification = Union[GoBoardClassification19, GoBoardClassification13, 
 
 
 
+Line = NDArray[Shape["4,1"], Float32]
+Lines = NDArray[Shape["*,4"], Float32]

@@ -208,9 +208,10 @@ class PyGOTk:
         
         state = self.pygo.Game.getCurrentState()
         self.img_overlay = self.pygo.img_overlay.copy()
+        #self.img_overlay = self.pygo.img_cam.copy()
         if (state is not None and \
-            self.grid is not None and\
-            self.pygo.Board.hasEstimate):
+                self.grid is not None and\
+                self.pygo.Board.hasEstimate):
             #cv2.imwrite('out.png', self.img_overlay)
             self.img_overlay = plot_overlay(state, self.grid, self.img_overlay)
             if self.pygo.msg != '':
