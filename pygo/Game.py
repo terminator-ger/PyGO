@@ -11,6 +11,7 @@ from playsound import playsound
 from sgfmill import sgf
 from typing import List, TextIO, Tuple, Optional
 import pdb
+from pudb import set_trace
 import cv2
 import logging
 
@@ -319,8 +320,8 @@ class Game(DebugInfoProvider):
         B[state==COLOR.BLACK.value] = 1
         W[state==COLOR.WHITE.value] = 1
         #pdb.set_trace()
-        _, markersB = cv2.connectedComponents(toByteImage(B))
-        _, markersW = cv2.connectedComponents(toByteImage(W))
+        _, markersB = cv2.connectedComponents(toByteImage(B), connectivity=4)
+        _, markersW = cv2.connectedComponents(toByteImage(W), connectivity=4)
         idsB = np.unique(markersB)
         idsW = np.unique(markersW)
         # remove 0 group
@@ -359,7 +360,6 @@ class Game(DebugInfoProvider):
         '''
 
         changes = []
-
         isInTree, notInTree = self.whichMovesAreInTheGameTree(newState)
         old_markers_b, old_markers_w, count_b, count_w = self.__countLiberties(self.state)
 
@@ -375,6 +375,7 @@ class Game(DebugInfoProvider):
             if liberties != 0:
                 # something bad happened (detection lost between two steps)
                 # remove this move revert to old state
+                logging.warn("Reset board state")
                 newState[x,y] = self.state[x,y]
 
         
@@ -406,7 +407,7 @@ class Game(DebugInfoProvider):
 
             # check that we have not forgotten to remove a stone neighbouring the new placed one
             markers, count = (old_markers_b, count_b) if added_next_color[0] == 'B' else (old_markers_w, count_w)
-            for groupId, cnt in enumerate(count):
+            for groupId, cnt in enumerate(count): # zip(range(1, len(count)+1) ,count):
                 if cnt == 0:
                     #remove group
                     idx = np.argwhere(markers == groupId)

@@ -4,6 +4,8 @@ from pygo.Game import Game
 from pygo.utils.color import  N2C, C2N, COLOR
 import pdb
 
+from pudb import set_trace
+
 
 class GameTests(unittest.TestCase):
         
@@ -47,6 +49,126 @@ class GameTests(unittest.TestCase):
 
         self.assertEqual(updatedState[0,0], COLOR.NONE.value)
         self.assertEqual(updatedState[1,0], COLOR.BLACK.value)
+
+    def testCaptureWithDetectionNoBorder(self):
+        self.game = Game()
+        self.game.startNewGame()
+        self.game._test_set('B',(3,3))
+        self.game._test_set('W',(3,4))
+        self.game._test_set('B',(4,4))
+        self.game._test_set('W',(13,4))
+        self.game._test_set('B',(2,4))
+        self.game._test_set('W',(1,1))
+        #self.game._test_set('B',(3,5))
+
+        nextState = self.game.state.copy()
+        nextState[3,4] = C2N('E')
+        nextState[3,5] = C2N('B')
+
+        updatedState = self.game._check_move_validity(nextState)
+
+        self.assertEqual(updatedState[3,4], COLOR.NONE.value)
+        self.assertEqual(updatedState[3,5], COLOR.BLACK.value)
+
+    def testCaptureWithDetectionNoBorderPartialDetection(self):
+        self.game = Game()
+        self.game.startNewGame()
+        self.game._test_set('B',(3,3))
+        self.game._test_set('W',(3,4))
+        self.game._test_set('B',(4,4))
+        self.game._test_set('W',(13,4))
+        self.game._test_set('B',(2,4))
+        self.game._test_set('W',(1,1))
+        #self.game._test_set('B',(3,5))
+
+        nextState = self.game.state.copy()
+        #nextState[3,4] = C2N('E')
+        nextState[3,5] = C2N('B')
+
+        updatedState = self.game._check_move_validity(nextState)
+
+        self.assertEqual(updatedState[3,4], COLOR.NONE.value)
+        self.assertEqual(updatedState[3,5], COLOR.BLACK.value)
+
+    def testCaptureWithDetectionNoBorderFalseDetection(self):
+        self.game = Game()
+        self.game.startNewGame()
+        self.game._test_set('B',(3,3))
+        self.game._test_set('W',(3,4))
+        self.game._test_set('B',(4,4))
+        self.game._test_set('W',(13,4))
+        self.game._test_set('B',(2,4))
+        self.game._test_set('W',(1,1))
+        #self.game._test_set('B',(3,5))
+
+        nextState = self.game.state.copy()
+        nextState[3,4] = C2N('W')
+        nextState[3,5] = C2N('B')
+
+        updatedState = self.game._check_move_validity(nextState)
+
+        self.assertEqual(updatedState[3,4], COLOR.NONE.value)
+        self.assertEqual(updatedState[3,5], COLOR.BLACK.value)
+
+    def testCaptureWithDetectionNoBorderFalseDetectionDoubleAtari(self):
+        self.game = Game()
+        self.game.startNewGame()
+        self.game._test_set('B',(4,4))
+        self.game._test_set('W',(3,4))
+        self.game._test_set('B',(3,5))
+        self.game._test_set('W',(4,5))
+        self.game._test_set('B',(4,6))
+        self.game._test_set('W',(3,6))
+
+        nextState = self.game.state.copy()
+        nextState[4,5] = C2N('W')
+        nextState[5,5] = C2N('B')
+
+        updatedState = self.game._check_move_validity(nextState)
+
+        self.assertEqual(updatedState[4,5], COLOR.NONE.value)
+        self.assertEqual(updatedState[5,5], COLOR.BLACK.value)
+
+    def testCaptureWithDetectionNoBorderCorrectDetectionDoubleAtari(self):
+        self.game = Game()
+        self.game.startNewGame()
+        self.game._test_set('B',(4,4))
+        self.game._test_set('W',(3,4))
+        self.game._test_set('B',(3,5))
+        self.game._test_set('W',(4,5))
+        self.game._test_set('B',(4,6))
+        self.game._test_set('W',(3,6))
+
+        nextState = self.game.state.copy()
+        nextState[4,5] = C2N('E')
+        nextState[5,5] = C2N('B')
+
+        updatedState = self.game._check_move_validity(nextState)
+
+        self.assertEqual(updatedState[4,5], COLOR.NONE.value)
+        self.assertEqual(updatedState[5,5], COLOR.BLACK.value)
+
+
+    def testCaptureWithDetectionNoBorderPartialCorrectDetectionDoubleAtari(self):
+        self.game = Game()
+        self.game.startNewGame()
+        self.game._test_set('B',(4,4))
+        self.game._test_set('W',(3,4))
+        self.game._test_set('B',(3,5))
+        self.game._test_set('W',(4,5))
+        self.game._test_set('B',(4,6))
+        self.game._test_set('W',(3,6))
+
+        nextState = self.game.state.copy()
+        #nextState[3,4] = C2N('N')
+        nextState[5,5] = C2N('B')
+        updatedState = self.game._check_move_validity(nextState)
+
+        self.assertEqual(updatedState[4,5], COLOR.NONE.value)
+        self.assertEqual(updatedState[5,5], COLOR.BLACK.value)
+
+
+
 
     def testMultiCaptureWithDetection(self):
         self.game = Game()

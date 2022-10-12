@@ -25,7 +25,7 @@ from pygo.utils.typing import B1CImage, B3CImage, Point2D, Point3D, Image, Mask,
 from pygo.utils.image import toColorImage
 from nptyping import NDArray
 from enum import Enum, auto
-
+from pudb import set_trace
 
 class debugkeys(Enum):
     Detected_Lines = auto()
@@ -40,7 +40,7 @@ class GoBoard(DebugInfoProvider):
         self.H = np.eye(3)
         self.vp = VPDetection(focal_length=CameraCalib.focal, 
                               principal_point=CameraCalib.center, 
-                              length_thresh=20)
+                              length_thresh=50)
                               #line_search_alg=LS_ALG.HOUGH)
         self.grid = None
         self.go_board_shifted = None
@@ -131,7 +131,6 @@ class GoBoard(DebugInfoProvider):
         best_image = np.zeros_like(img)
         img_out = None
         min_area = np.prod(img.shape)
-        logging.debug("Min Area: {}".format(min_area))
         for c, cnt in enumerate(contours):
             if len(cnt) < 4:
                 continue
@@ -152,7 +151,7 @@ class GoBoard(DebugInfoProvider):
                     output = cv2.cvtColor(img.copy(), cv2.COLOR_GRAY2RGB)
                     #cv2.drawContours(output, [approx], -1, (0, 255, 0), 3)
                     #cv2.imshow("PyGO2", output)
-                    #cv2.waitKey(50)
+                    #cv2.waitKey(10)
 
                     #text = "eps={:.4f}, num_pts={}".format(eps, len(approx))
                     #cv2.putText(output, text, (0, 0), cv2.FONT_HERSHEY_SIMPLEX,\
@@ -267,14 +266,17 @@ class GoBoard(DebugInfoProvider):
                                     0, \
                                     255, \
                                     cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
+        #cv2.imshow('overlay', img_bw)
+        #cv2.waitKey(1)
         # assumption most lines in the image are from the go board -> vp give us the plane
         # the contour which belongs to those vp is the board
         corners = self.detect_board_corners(vp1, vp2, img_bw)
+        img_ = img.copy()
         if corners is not None:
             corners = np.int32([corners])
-            cv2.polylines(img, corners, color=(0,255,0), isClosed=True, thickness=3)
+            cv2.polylines(img_, corners, color=(0,255,0), isClosed=True, thickness=3)
             
-        return img
+        return img_
 
 
     def get_vp(self, img: B1CImage) -> Tuple[Point3D, Point3D]:
@@ -300,11 +302,10 @@ class GoBoard(DebugInfoProvider):
             h,w = img.shape
 
         vp1, vp2 = self.get_vp(img) 
-
         thresh, img_bw = cv2.threshold(img, \
                                     0, \
                                     255, \
-                                    cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
+                                    cv2.THRESH_BINARY+cv2.THRESH_OTSU)
         #cv2.imshow('bw',img_bw)
         #cv2.waitKey(1)
         # clean img_bw
@@ -337,11 +338,25 @@ class GoBoard(DebugInfoProvider):
         img_c = cv2.polylines(img_c, np.array([corners.astype(int)]), True, (0, 255, 255), 1)
 
         H, img_limits = compute_homography(img_c, vp1, vp2, clip=False, clip_factor=1)
+        lines_v = self.vp.lines_v
+        lines_h = self.vp.lines_h
+        img_lines = img_c.copy()
+        for l in lines_v:
+            pt1 = l[:2].astype(int)
+            pt2 = l[2:].astype(int)
+            cv2.line(img_lines, pt1, pt2, (0,0,255), 1)
+        for l in lines_h:
+            pt1 = l[:2].astype(int)
+            pt2 = l[2:].astype(int)
+            cv2.line(img_lines, pt1, pt2, (0,255,0), 1)
+        #cv2.imshow('',img_lines)
+        #cv2.waitKey()
+ 
         self.img_limits = img_limits
-
+        '''
         img_cw = cv2.warpPerspective(img_bw, H, img_limits)
-        cv2.warpPerspective(src=img_c, dst=img_c, M=H, Size=img_limits)
-        cv2.warpPerspective(src=mask, dst=mask, M=H, Size=img_limits)
+        img_c = cv2.warpPerspective(img_c, M=H, dsize=img_limits)
+        mask = cv2.warpPerspective(mask, M=H, dsize=img_limits)
 
         # warp corners
         corners_w = warp_lines(corners, H)
@@ -357,7 +372,7 @@ class GoBoard(DebugInfoProvider):
         thresh, img_cw = cv2.threshold(img_cw, \
                                     0, \
                                     255, \
-                                    cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
+                                    cv2.THRESH_BINARY+cv2.THRESH_OTSU)
         
         img_cw[mask==0] = 0
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
@@ -422,14 +437,14 @@ class GoBoard(DebugInfoProvider):
                     lines_h.append([*pt1, *pt2])
                     if self.available_debug_info[debugkeys.Detected_Lines.name]:
                         cv2.line(img_lines, pt1, pt2, (0,255,0), 1)
-
+        '''
 
         self.showDebug(debugkeys.Detected_Lines.name, img_lines)
         lines = intersect(np.array(lines_v), np.array(lines_h))
         #[plt.axline((l[0],l[1]), (l[2],l[3])) for l in lines_v]
         #[plt.axline((l[0],l[1]), (l[2],l[3])) for l in lines_h]
         #plt.scatter(lines[:,0], lines[:,1])
-        #plt.show(block=False)
+        #plt.show()
 
  
 
@@ -437,6 +452,11 @@ class GoBoard(DebugInfoProvider):
         if len(lines) == 0:
             logging.warning('Could not find enought lines - calib failed')
             return 
+        
+        if len(lines) > 5000:
+            logging.warning('Too Many lines detected! - calib failed')
+            return 
+
         self.grid = get_ref_go_board_coords(np.min(lines, axis=0), np.max(lines, axis=0))
         # warp back to original images
         lines_raw_orig = cv2.perspectiveTransform(lines[:,None,:], np.linalg.inv(H)).squeeze()
@@ -458,8 +478,8 @@ class GoBoard(DebugInfoProvider):
         callback = partial(visualize, ax=fig.axes[0])
         reg = AffineRegistration(**{'X': lines, 
                                 'Y': self.grid, 
-                                'max_iterations': 8000,
-                                'tolerance': 0.0001,
+                                'max_iterations': 800,
+                                'tolerance': 0.001,
                                 })
 
         if self.available_debug_info[debugkeys.Affine_Registration.name]:
@@ -471,7 +491,6 @@ class GoBoard(DebugInfoProvider):
         R[0:2,0:2]=param[0]
         R[0:2,2]=param[1]
 
-        pdb.set_trace()
         w_board = cv2.transform(np.array([self.grid]), (R))[0][:,:2]
         ow_board = cv2.perspectiveTransform(np.array([self.grid]), R@np.linalg.inv(H))[0]
 
@@ -483,7 +502,7 @@ class GoBoard(DebugInfoProvider):
         
         if self.available_debug_info[debugkeys.Detected_Grid.name]:
             img_grid = plot_grid(img.copy(), w_board.reshape(-1,2))
-        self.showDebug(debugkeys.Detected_Grid.name, img_grid)
+            self.showDebug(debugkeys.Detected_Grid.name, img_grid)
 
         self.H = H_refined 
         if self.check_patches_are_centered(img):
