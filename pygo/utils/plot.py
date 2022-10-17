@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
+import pdb
 
 def plot_grid(img, board):
     board = board.reshape(19,19,2)
@@ -30,6 +31,7 @@ def plot_circles2(img, c):
 
 def plot_overlay(val, coords, img):
     val = val.reshape(-1)
+    coords = coords.reshape(-1,2)
     for v, c in zip(val, coords): 
         #if v > 0.6:
         if v == 0:
@@ -47,6 +49,26 @@ def plot_overlay(val, coords, img):
 
         img = cv2.circle(img, (int(c[0]),int(c[1])), radius=8, color=color, thickness=thickness)
     return img
+
+def plot_virt_grid(val, coords, img):
+    val = val.reshape(-1)
+    coords = coords.reshape(-1,2)
+    for v, c in zip(val, coords): 
+        if v == 0:
+            #white
+            color = (255, 255, 255)
+            thickness=-1
+            img = cv2.circle(img, (int(c[0]),int(c[1])), radius=8, color=color, thickness=thickness)
+            img = cv2.circle(img, (int(c[0]),int(c[1])), radius=8, color=(0,0,0), thickness=1)
+        elif v == 1:
+            #black
+            color = (0,0,0)
+            thickness=-1
+            img = cv2.circle(img, (int(c[0]),int(c[1])), radius=8, color=color, thickness=thickness)
+
+    return img
+
+
 
 def plot_val(val, coords, img):
     

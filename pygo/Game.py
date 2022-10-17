@@ -372,11 +372,11 @@ class Game(DebugInfoProvider):
                 id = old_markers_w[x,y]
                 liberties = count_w[id]
              
-            if liberties != 0:
-                # something bad happened (detection lost between two steps)
-                # remove this move revert to old state
-                logging.warn("Reset board state")
-                newState[x,y] = self.state[x,y]
+            #if liberties != 0:
+            #    # something bad happened (detection lost between two steps)
+            #    # remove this move revert to old state
+            #    logging.warning("Reset board state")
+            #    newState[x,y] = self.state[x,y]
 
         
         # options 

@@ -68,10 +68,18 @@ class PyGOTk:
 
         gamemenu = tk.Menu(self.menubar, tearoff=0)
         gamemenu.add_command(label='Start new', command=self.onGameNew)
+        
+        self.viewVar = tk.IntVar(value=0)
+        viewmenu = tk.Menu(self.menubar, tearoff=0)
+        viewmenu.add_radiobutton(label="Overlay",  value=0, variable=self.viewVar)
+        viewmenu.add_radiobutton(label="Original", value=1, variable=self.viewVar)
+        viewmenu.add_radiobutton(label="Virtual",  value=2, variable=self.viewVar)
+
 
         self.menubar.add_cascade(label="File", menu=filemenu)
         self.menubar.add_cascade(label="Game", menu=gamemenu)
         self.menubar.add_cascade(label="Board", menu=boardmenu)
+        self.menubar.add_cascade(label="View", menu=viewmenu)
 
         self.root.config(menu=self.menubar)
         
@@ -126,8 +134,6 @@ class PyGOTk:
 
     def setLogLevelWarn(self) -> None:
         logging.getLogger().setLevel(logging.WARN)
-
-
 
 
     def on_closing(self):
@@ -206,18 +212,27 @@ class PyGOTk:
         if self.weOwnControllLooop:
             self.pygo.run_once()
         
-        state = self.pygo.Game.getCurrentState()
-        self.img_overlay = self.pygo.img_overlay.copy()
-        #self.img_overlay = self.pygo.img_cam.copy()
-        if (state is not None and \
-                self.grid is not None and\
-                self.pygo.Board.hasEstimate):
+        #state = self.pygo.Game.getCurrentState()
+        ##self.img_overlay = self.pygo.img_overlay.copy()
+        ##self.img_overlay = self.pygo.img_cam.copy()
+        #kif (state is not None and \
+        #        self.grid is not None and\
+        #        self.pygo.Board.hasEstimate):
             #cv2.imwrite('out.png', self.img_overlay)
-            self.img_overlay = plot_overlay(state, self.grid, self.img_overlay)
-            if self.pygo.msg != '':
-                self.logMove(self.pygo.msg)
+            #self.img_overlay = plot_overlay(state, self.grid, self.img_overlay)
 
-        self.tkimage = self.__np2tk(self.img_overlay)
+        if self.pygo.msg != '':
+            self.logMove(self.pygo.msg)
+
+        # switch view
+        view = self.viewVar.get()
+        if view == 0:
+            self.tkimage = self.__np2tk(self.pygo.img_overlay)
+        elif view == 1:
+            self.tkimage = self.__np2tk(self.pygo.img_cropped)
+        elif view == 2:
+            self.tkimage = self.__np2tk(self.pygo.img_virtual)
+
         self.go_board_display.configure(image=self.tkimage)
         self.go_board_display.image = self.tkimage
         self.root.after(1, self.update)
