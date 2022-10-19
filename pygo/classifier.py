@@ -2,24 +2,19 @@ from __future__ import division
 from distutils.log import debug
 
 from requests import patch
-from pygo.GoBoard import GoBoard
-from pygo.utils.debug import DebugInfo, DebugInfoProvider
-from pygo.utils.image import toHSVImage
-from tqdm import tqdm
-import cv2
+import pdb
+from pudb import set_trace
+import logging
 import numpy as np
 import matplotlib.pyplot as plt
 from joblib import load, dump
+from pygo.Signals import OnBoardGridSizeKnown, Signals
 from skimage import exposure
-from skimage.feature import hog
 from scipy.spatial import distance_matrix
 from pygo.GoNet import GoNet
-from sklearn.neighbors import KNeighborsClassifier
 import torch as th
 import cv2
 import os
-import pdb
-from sklearn.metrics import classification_report, f1_score
 import imgaug.augmenters as iaa
 import torch as th
 import torch.nn.functional as F
@@ -30,19 +25,24 @@ from enum import Enum, auto
 from typing import Tuple
 
 from skimage.transform import integral_image
-from skimage.feature import haar_like_feature
-from skimage.feature import haar_like_feature_coord
+from skimage.feature import haar_like_feature, hog, haar_like_feature_coord
+
+from sklearn.metrics import classification_report, f1_score
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+
 from pyELSD.pyELSD import PyELSD
 import warnings
 
-
-from pygo.utils.image import toCMYKImage, toGrayImage, toColorImage, toDoubleImage, toByteImage
+from pygo.utils.debug import Timing
+from pygo.utils.image import toCMYKImage, toGrayImage, toColorImage, toDoubleImage, toByteImage, toHSVImage
 from pygo.utils.data import load_training_data, save_training_data, load_training_data2, load_and_augment_training_data
+from pygo.utils.debug import DebugInfo, DebugInfoProvider
 from pygo.utils.typing import B1CImage, B3CImage, GoBoardClassification
+from pygo.GoBoard import GoBoard
 
 
 warnings.filterwarnings('always') 
@@ -79,9 +79,11 @@ class CV2PlotSettings:
     lineType  : int        = 2
 
 
-class CircleClassifier(Classifier, DebugInfoProvider):
+class CircleClassifier(Classifier, DebugInfoProvider, Timing):
     def __init__(self, BOARD:GoBoard, size: int) -> None:
-        super().__init__()
+        Classifier.__init__(self)
+        Timing.__init__(self)
+        DebugInfoProvider.__init__(self)
 
         self.size = size 
         self.elsd = PyELSD()
@@ -89,22 +91,22 @@ class CircleClassifier(Classifier, DebugInfoProvider):
         self.BOARD=BOARD
         self.params = cv2.SimpleBlobDetector_Params()
 
-        self.params.minThreshold = 127
+        self.params.minThreshold = 20
         self.params.maxThreshold = 255
 
         self.params.filterByCircularity = True
         self.params.minCircularity = 0.70
         self.params.maxCircularity = 1.0
         
-        self.params.filterByConvexity = True
+        self.params.filterByConvexity = False
         self.params.minConvexity = 0.0
         self.params.maxConvexity = 1.0
 
         self.params.filterByArea = True
-        self.params.minArea = 150
-        self.params.maxArea = 300
+        self.params.minArea = 100
+        self.params.maxArea = 999
 
-        self.params.filterByInertia = True
+        self.params.filterByInertia = False
         self.params.minInertiaRatio = 0.1
         self.params.maxInertiaRatio = 1.0
 
@@ -112,10 +114,20 @@ class CircleClassifier(Classifier, DebugInfoProvider):
         self.c = 0
         self.img_debug = None
 
+
         for key in debugkeys:        
             self.available_debug_info[key.name] = False
 
         self.cv_settings =  CV2PlotSettings()
+        Signals.subscribe(OnBoardGridSizeKnown, self.update_grid_size)
+
+    def update_grid_size(self, args):
+        grid = args[0].reshape(19,19,2)
+        dx = np.mean(np.diff(grid[:,:,0].T))
+        dy = np.mean(np.diff(grid[:,:,1]))
+        a = ((np.mean([dx,dy])/2)**2)*np.pi
+        self.params.minArea = a *0.7
+        self.params.maxArea = a *1.3
 
 
     def predict__(self, img: B3CImage):
@@ -191,14 +203,15 @@ class CircleClassifier(Classifier, DebugInfoProvider):
 
 
     def predict(self, img: B3CImage) -> GoBoardClassification:
+        #self.tic('pred- prep')
         img_c = img.copy()
         self.img_debug = img.copy()
 
-        img = toHSVImage(img_c.copy())[:,:,2]
-        img2 = toHSVImage(img_c.copy())[:,:,1]
-        value = toHSVImage(img_c.copy())[:,:,2]
-        img = toByteImage(img)
-        img2 = toByteImage(img2)
+        img   = toHSVImage(img_c)[:,:,2]
+        img2  = toHSVImage(img_c)[:,:,1]
+        value = toHSVImage(img_c)[:,:,2]
+        img   = toByteImage(img)
+        img2  = toByteImage(img2)
         
         img_b = cv2.adaptiveThreshold(img, 255,
                                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
@@ -210,37 +223,46 @@ class CircleClassifier(Classifier, DebugInfoProvider):
                                 cv2.THRESH_BINARY, 
                                 31, self.c)
 
-        self.showDebug(debugkeys.IMG_B.name, img_b)
-        self.showDebug(debugkeys.IMG_W.name, img_w)
+        self.showDebug(debugkeys.IMG_B, img_b)
+        self.showDebug(debugkeys.IMG_W, img_w)
 
+        #self.tic('pred- water')
         mask_b = 255-self.__watershed(255-img_b)
         mask_w = 255-self.__watershed(255-img_w)
+        #self.toc('pred- water')
         
         img_masks = [mask_b, mask_w]
 
         ver = (cv2.__version__).split('.')
+        #self.tic('pred- blob')
         if int(ver[0]) < 3 :
             detector = cv2.SimpleBlobDetector(self.params)
         else :
             detector = cv2.SimpleBlobDetector_create(self.params)
+        #self.toc('pred- blob')
 
         detected_circles = []
         for img in img_masks:
             keypoints = detector.detect(img)
-            self.img_debug = cv2.drawKeypoints(self.img_debug, keypoints, np.array([]), (255,0,0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+            logging.debug('Keypoints found: {}'.format(len(keypoints)))
+            if self.debugStatus(debugkeys.Detected_Intensities):
+                self.img_debug = cv2.drawKeypoints(self.img_debug, keypoints, np.array([]), (255,0,0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
             for kp in keypoints:
                 crl = np.array([kp.pt[0], kp.pt[1], kp.size])
                 detected_circles.append([crl])
 
-        self.showDebug(debugkeys.Mask_Black.name, mask_b)
-        self.showDebug(debugkeys.Mask_White.name, mask_w)
+        self.showDebug(debugkeys.Mask_Black, mask_b)
+        self.showDebug(debugkeys.Mask_White, mask_w)
  
+        #self.toc('pred- prep')
+        #self.tic('pred- anal')
         val = self.__analyse(detected_circles, value)
+        #self.toc('pred- anal')
 
         return val.astype(int)
 
     def __watershed(self, fg : B1CImage) -> B1CImage:
-        fg = toByteImage(fg)
+        #fg = toByteImage(fg)
         dist_transform = cv2.distanceTransform(fg,cv2.DIST_L2,3)
         ret, sure_fg = cv2.threshold(dist_transform,0.7*dist_transform.max(),255,0)
         unknown = fg - sure_fg
@@ -249,7 +271,9 @@ class CircleClassifier(Classifier, DebugInfoProvider):
         # Add one to all labels so that sure background is not 0, but 1
         markers = markers+1
         markers[unknown.astype(bool)]  = 0
+        #self.tic('ws')
         markers = cv2.watershed(toColorImage(fg), markers)
+        #self.toc('ws')
         markers[markers==1] = 0
         markers[markers>1] = 255
         markers[markers==-1] = 0
@@ -262,7 +286,6 @@ class CircleClassifier(Classifier, DebugInfoProvider):
     def __analyse(self, detected_circles, value: B1CImage) -> GoBoardClassification:
         val = np.ones(self.size**2)*2
         num_val = np.zeros(self.size**2)
-
         for circles in detected_circles:
             if circles is not None:
                 circles = np.uint16(np.around(circles))
@@ -279,15 +302,16 @@ class CircleClassifier(Classifier, DebugInfoProvider):
                             val[np.argwhere(on_grid)] = 0
                         num_val[np.argwhere(on_grid)] = np.median(patch)
 
-                        cv2.circle(self.img_debug, (i[0], i[1]), int(i[2]/2), (0, 255, 0), 1)
-                        cv2.putText(self.img_debug, "{}".format(np.median(patch)),
-                                (int(i[0]), int(i[1])),
-                                self.cv_settings.font, 
-                                self.cv_settings.fontScale,
-                                self.cv_settings.fontColor,
-                                self.cv_settings.thickness,
-                                self.cv_settings.lineType)
-                        self.showDebug(debugkeys.Detected_Intensities.name, self.img_debug)
+                        if self.debugStatus(debugkeys.Detected_Intensities):
+                            cv2.circle(self.img_debug, (i[0], i[1]), int(i[2]/2), (0, 255, 0), 1)
+                            cv2.putText(self.img_debug, "{}".format(np.median(patch)),
+                                    (int(i[0]), int(i[1])),
+                                    self.cv_settings.font, 
+                                    self.cv_settings.fontScale,
+                                    self.cv_settings.fontColor,
+                                    self.cv_settings.thickness,
+                                    self.cv_settings.lineType)
+                            self.showDebug(debugkeys.Detected_Intensities, self.img_debug)
         return val
 
 

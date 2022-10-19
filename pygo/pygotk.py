@@ -13,12 +13,12 @@ import logging
 import tkinter.scrolledtext as scrolledtext
 from functools import partial
 from tkinter import filedialog as fd
+from pygo.Signals import Signals
 
 from pygo.core import PyGO
 from pygo.classifier import GoClassifier, HaarClassifier, IlluminanceClassifier, CircleClassifier
 from pygo.Motiondetection import MotionDetectionMOG2
 from pygo.GoBoard import GoBoard
-from pygo.utils.plot import plot_overlay
 from pygo.utils.typing import B3CImage, Image, NetMove
 from pygo.utils.data import save_training_data
 from pygo.utils.misc import flattenList
@@ -26,6 +26,7 @@ from pygo.utils.debug import DebugInfo
 from pygo.Game import Game, GameState
 from pygo.Ensemble import SoftVoting, MajorityVoting
 from pygo.Webcam import Webcam
+from pygo.Signals import Signals, OnSettingsChanged
 
 class PyGOTk:
     #types
@@ -43,7 +44,7 @@ class PyGOTk:
             self.weOwnControllLooop = False
 
         self.DebugInfo = DebugInfo([self.pygo.Motiondetection, 
-                                    self.pygo.Masker, 
+                                    #self.pygo.Masker, 
                                     self.pygo.Board, 
                                     self.pygo.Game,
                                     self.pygo.PatchClassifier])
@@ -61,6 +62,7 @@ class PyGOTk:
         filemenu = tk.Menu(self.menubar, tearoff=0)
         #filemenu.add_command(label="Open", command=self.onFileOpen)
         filemenu.add_command(label="Save", command=self.onFileSave)
+        filemenu.add_command(label="Settings", command=self.onSettings)
         filemenu.add_command(label="Exit", command=self.onFileExit)
 
         boardmenu = tk.Menu(self.menubar, tearoff=0)
@@ -119,6 +121,8 @@ class PyGOTk:
         self._next_job = None
         self.QUIT = False
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.settings = {'AllowUndo' : tk.BooleanVar(value=False),
+        }
     
     def switchState(self, fn, name, state):
         if state.get():
@@ -134,6 +138,25 @@ class PyGOTk:
 
     def setLogLevelWarn(self) -> None:
         logging.getLogger().setLevel(logging.WARN)
+
+    def onSettings(self):
+        self.settings_window = tk.Toplevel(self.root)
+        self.settings_window.title('Settings')
+        self.settings_window.grid()
+        btn1 = tk.Checkbutton(self.settings_window, 
+                                text='Allow undoing moves during recording',
+                                variable=self.settings['AllowUndo'],
+                                onvalue=True, 
+                                offvalue=False)
+        btn1.pack()
+
+        self.settings_window.protocol("WM_DELETE_WINDOW", self.on_settings_closing)
+
+    def on_settings_closing(self):
+        logging.debug("Settings changed")
+        Signals.emit(OnSettingsChanged, self.settings)
+
+        self.settings_window.destroy()
 
 
     def on_closing(self):

@@ -137,7 +137,7 @@ def get_segment_crop(img,tol=0, mask=None):
         mask = img > tol
     return img[np.ix_(mask.any(1), mask.any(0))]
 
-def mask_board(image, go_board):
+def mask_board(image, go_board, border_size=15):
     mask = np.zeros_like(image)
     go = go_board.reshape(19,19,2)
     corners = np.array([go[0,0], 
@@ -145,7 +145,7 @@ def mask_board(image, go_board):
                         go[18,18], 
                         go[18,0]]).reshape(-1,1,2).astype(int)
     mask = cv2.fillConvexPoly(mask, corners, (255,255,255))
-    mask = cv2.dilate(mask, np.ones((3,3)), iterations=15)
+    mask = cv2.dilate(mask, np.ones((3,3)), iterations=border_size)
     if len(mask.shape) == 3:
         rect = cv2.boundingRect(cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY))               # function that computes the rectangle of interest
     else:

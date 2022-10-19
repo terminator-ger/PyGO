@@ -17,8 +17,9 @@ import logging
 
 from pygo.utils.image import toByteImage
 from pygo.utils.color import N2C, C2N, COLOR
-from pygo.utils.debug import DebugInfo, DebugInfoProvider
+from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
 from pygo.utils.typing import Move, NetMove, GoBoardClassification
+from pygo.Signals import Signals, OnSettingsChanged
 
 
 class GameState(Enum):
@@ -26,9 +27,11 @@ class GameState(Enum):
     NOT_STARTED = 1
 
 
-class Game(DebugInfoProvider):
+class Game(DebugInfoProvider, Timing):
     def __init__(self):
-        super().__init__()
+        DebugInfoProvider.__init__(self)
+        Timing.__init__(self)
+
         self.last_color = 2
         self.last_x = -1
         self.last_y = -1
@@ -42,6 +45,19 @@ class Game(DebugInfoProvider):
         self.sgf = None
         self.sgf_node = None
         self.manualMoves = []
+
+        self.settings  = {
+            'AllowUndo': False,
+        }
+
+        Signals.subscribe(OnSettingsChanged, self.settings_updated)
+
+    def settings_updated(self, args):
+        new_settings = args[0]
+        for k in self.settings.keys():
+            self.settings[k] = new_settings[k].get()
+        print(self.settings)
+
 
     def getCurrentState(self) -> GoBoardClassification:
         return self.state
@@ -102,7 +118,7 @@ class Game(DebugInfoProvider):
             y = idx[0,1]
             c = state[x,y]
             rnd = random.randint(1,5) 
-            playsound('sounds/stone{}.wav'.format(rnd))
+            playsound('sounds/stone{}.wav'.format(rnd), block=False)
             c_str = N2C(c)
 
             print('{}: {}-{}'.format(c_str, x+1, y+1))
@@ -182,23 +198,9 @@ class Game(DebugInfoProvider):
             elif c != self.last_color and c in [0,1]:
                 # new move
                 rnd = random.randint(1,5) 
-                playsound('sounds/stone{}.wav'.format(rnd))
+                playsound('sounds/stone{}.wav'.format(rnd), block=False)
                 self._setStone(x, y, c_str)
                 return [c_str.lower(), x, y]
-
-        #elif diff == 2 and len(isInTree) == 1:
-        #    # we moved the last stone
-        #    self.sgf_node.reparent(self.sgf_node.parent, -1)
-        #    rnd = random.randint(1,5) 
-        #    playsound('sounds/stone{}.wav'.format(rnd))
-
-        #    idx = np.argwhere([C2N(x[0]) == 'E' for x in notInTree])
-        #    c_str, (x,y) = isInTree.pop(0)
-        #    self._undoLastMove(x, y, c_str)
-        #    c_str, (x,y) = notInTree.pop(0)
-        #    self._setStone(x, y, c_str)
-        #    return [c_str.lower(), x, y]
-
         else:
             if np.sum([x[0] != 'E' for x in notInTree]) == 1:
                 nm = self.nextMove()
@@ -213,7 +215,7 @@ class Game(DebugInfoProvider):
                     c_str = move[0]
                     (x,y) = move[1]
                     self._setStone(x, y, c_str)
-                    playsound('sounds/capturing.wav')
+                    playsound('sounds/capturing.wav', block=False)
                     return [c_str.lower(), x, y]    
                 else:
                     #last stone was moved
@@ -224,7 +226,7 @@ class Game(DebugInfoProvider):
                     c_str = move[0]
                     (x,y) = move[1]
                     self._setStone(x, y, c_str)
-                    playsound('sounds/stone1.wav')
+                    playsound('sounds/stone1.wav', block=False)
                     return [c_str.lower(), x, y]
 
     def setManual(self, x:int ,y:int) -> None:
@@ -396,7 +398,11 @@ class Game(DebugInfoProvider):
             removed = removed[0]
             if (removed[1][0] == self.last_x and removed[1][1] == self.last_y):
                 # case a)
-                return newState
+                if self.settings['AllowUndo']:
+                    return newState
+                else:
+                    return self.state
+
 
         elif len(added_next_color) == 1 and len(added_old_color) == 0:
             # apply adding of stone and check liberties

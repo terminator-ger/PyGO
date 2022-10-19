@@ -12,8 +12,9 @@ import matplotlib.pyplot as plt
 import math
 from pygo.utils.line import intersect, is_line_within_board, warp_lines
 from pygo.utils.misc import get_ref_go_board_coords, find_src_pt, mask_board, get_grid_lines
-from pygo.utils.plot import plot_grid
 from pygo.utils.image import toByteImage, toCMYKImage, toGrayImage
+from pygo.utils.plot import Plot
+from pygo.Signals import OnBoardDetected, OnBoardGridSizeKnown, Signals
 from pycpd import AffineRegistration, RigidRegistration, DeformableRegistration
 from functools import partial
 from shapely.geometry import Polygon, LineString, Point
@@ -34,6 +35,8 @@ class debugkeys(Enum):
     Affine_Registration = auto()
     Board_Outline = auto()
 
+class NoVanishingPointsDetectedException(Exception):
+    pass
 
 class GoBoard(DebugInfoProvider):
     def __init__(self, CameraCalib):
@@ -47,9 +50,12 @@ class GoBoard(DebugInfoProvider):
         self.go_board_shifted = None
         self.hasEstimate = False
         self.grid_lines = None
+        self.border_size = 15
+        self.plot = Plot()
 
         for key in debugkeys:
             self.available_debug_info[key.name] = False
+
 
 
     def crop(self, pts : Corners, img : Image) -> Mask:
@@ -129,6 +135,8 @@ class GoBoard(DebugInfoProvider):
         min_dist = 10000
         corners = []
         corners_mat = None
+        #cv2.imshow('',img.copy())
+        #cv2.waitKey(100)
 
         best_image = np.zeros_like(img)
         img_out = None
@@ -221,7 +229,7 @@ class GoBoard(DebugInfoProvider):
                         min_dist = dist
                         #image = cv2.drawContours(img_out, contours, c, (0, 255, 0), 3)
                         #cv2.imshow('',image)
-                        #cv2.waitKey(1000)
+                        #cv2.waitKey(100)
 
                         #best_image = image
                         #best_cnt = cnt
@@ -231,12 +239,12 @@ class GoBoard(DebugInfoProvider):
         #if corners_mat is not None:
         #    plt.imshow(best_image)
         #    plt.scatter(corners_mat[:,0], corners_mat[:,1])
-        #    plt.show(block=False)
+        #    plt.show()
 
         return corners_mat
     
     def detect_board_corners(self, vp1: Point2D, vp2: Point2D, img_bw: B1CImage) -> NDArray:
-
+        #img_bw = cv2.equalizeHist(img_bw)
         corners = self.get_corners(vp1, vp2, img_bw)
         #pdb.set_trace()
         #plt.imshow(img_bw)
@@ -259,7 +267,10 @@ class GoBoard(DebugInfoProvider):
 
     def get_corners_overlay(self, img: B3CImage) -> NDArray:
         img_gray = toGrayImage(img)
-        vp1, vp2 = self.get_vp(img_gray)
+        try:
+            vp1, vp2 = self.get_vp(img_gray)
+        except NoVanishingPointsDetectedException:
+            return img
         #print(vp1, vp2)
         #vpd = self.vp.create_debug_VP_image()
         #cv2.imshow('New', vpd)
@@ -282,6 +293,8 @@ class GoBoard(DebugInfoProvider):
 
     def get_vp(self, img: B1CImage) -> Tuple[Point3D, Point3D]:
         van_points = self.vp.find_vps(img)
+        if van_points is None:
+            raise NoVanishingPointsDetectedException()
         #lines_vp = []
         vps = self.vp.vps_2D
         vp3d = self.vp.vps
@@ -302,7 +315,58 @@ class GoBoard(DebugInfoProvider):
         else:
             h,w = img.shape
 
-        vp1, vp2 = self.get_vp(img) 
+        try:
+            vp1, vp2 = self.get_vp(img) 
+        except NoVanishingPointsDetectedException:
+            return False
+
+        thresh, img_bw = cv2.threshold(img, \
+                                    0, \
+                                    255, \
+                                    cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        #cv2.imshow('bw',img_bw)
+        #cv2.waitKey(1)
+        # clean img_bw
+
+
+        # assumption most lines in the image are from the go board -> vp give us the plane
+        # the contour which belongs to those vp is the board
+        corners = self.detect_board_corners(vp1, vp2, img_bw.copy())    
+
+
+        self.grid = get_ref_go_board_coords(np.min(corners, axis=0), 
+                                            np.max(corners, axis=0))
+        target_corners = np.vstack((self.grid[18], 
+                                    self.grid[0], 
+                                    self.grid[342],
+                                    self.grid[360]))
+        
+        H, ret = cv2.findHomography(target_corners, corners)
+        self.img_limits = (img.shape[1],img.shape[0])
+        self.H = H 
+        self.grid_lines, self.grid_img, self.grd_overlay = get_grid_lines(self.grid)
+        self.hasEstimate=True
+        logging.debug(self.H)
+        logging.info("Calibration successful")
+        Signals.emit(OnBoardDetected, self.extract(img) , corners, self.H)
+        Signals.emit(OnBoardGridSizeKnown, self.go_board_shifted)
+
+    def calib_old(self, img: Image) -> None:
+        #img_c = img
+        if len(img.shape) == 3:
+            h,w,c = img.shape
+            #instead of the grayscale variant extract the red part
+            img = toCMYKImage(img)[:,:,3]
+            #plt.imshow(img)
+            #plt.show()
+        else:
+            h,w = img.shape
+
+        try:
+            vp1, vp2 = self.get_vp(img) 
+        except NoVanishingPointsDetectedException:
+            return False
+
         thresh, img_bw = cv2.threshold(img, \
                                     0, \
                                     255, \
@@ -371,7 +435,7 @@ class GoBoard(DebugInfoProvider):
             vec = pt1-pt2
             if poly.crosses(LineString([pt1+vec,pt2-vec])):
                 lines_v__.append(line)
-                if self.available_debug_info[debugkeys.Detected_Lines.name]:
+                if self.debugStatus(debugkeys.Detected_Lines):
                     cv2.line(img_lines, pt1.astype(int), pt2.astype(int), (255,0,0), 2)
         for line in lines_h_w:
             pt1 = line[:2]
@@ -379,7 +443,7 @@ class GoBoard(DebugInfoProvider):
             vec = pt1-pt2
             if poly.crosses(LineString([pt1+vec,pt2-vec])):
                 lines_h__.append(line)
-                if self.available_debug_info[debugkeys.Detected_Lines.name]:
+                if self.debugStatus(debugkeys.Detected_Lines):
                     cv2.line(img_lines, pt1.astype(int), pt2.astype(int), (0,255,0), 2)
 
 
@@ -399,7 +463,7 @@ class GoBoard(DebugInfoProvider):
         for pt in lines_cleaned:
             cv2.circle(img_lines, pt.astype(int), 1, (0,0,255))
 
-        self.showDebug(debugkeys.Detected_Lines.name, img_lines)
+        self.showDebug(debugkeys.Detected_Lines, img_lines)
 
 
         lines_cleaned = np.array(lines_cleaned)
@@ -448,7 +512,7 @@ class GoBoard(DebugInfoProvider):
                                 'tolerance': 0.0001,
                                 })
 
-        if self.available_debug_info[debugkeys.Affine_Registration.name]:
+        if self.debugStatus(debugkeys.Affine_Registration):
             ty, param = reg.register(callback)
         else:
             ty, param = reg.register()
@@ -475,9 +539,9 @@ class GoBoard(DebugInfoProvider):
 
         H_refined = R @ np.linalg.inv(H) @ np.linalg.inv(H_refined)
         
-        if self.available_debug_info[debugkeys.Detected_Grid.name]:
-            img_grid = plot_grid(img.copy(), w_board.reshape(-1,2))
-            self.showDebug(debugkeys.Detected_Grid.name, img_grid)
+        if self.debugStatus(debugkeys.Detected_Grid):
+            img_grid = self.plot.plot_grid(img.copy(), w_board.reshape(-1,2))
+            self.showDebug(debugkeys.Detected_Grid, img_grid)
 
         self.H = H_refined 
         if self.check_patches_are_centered(img):
@@ -485,6 +549,7 @@ class GoBoard(DebugInfoProvider):
             self.hasEstimate=True
             logging.debug(self.H)
             logging.info("Calibration successful")
+            OnBoardDetected.emit(self.extract(img) , corners, self.H)
         else:
             self.H = np.eye(3)
             logging.info('Calibration failed! - ')
@@ -527,7 +592,7 @@ class GoBoard(DebugInfoProvider):
         #cv2.imshow('PyGO', img_w) 
         #cv2.waitKey(100)
 
-        img_c_trim, (x,y) = mask_board(img_w, self.grid)
+        img_c_trim, (x,y) = mask_board(img_w, self.grid, self.border_size)
         self.go_board_shifted = self.grid - np.array([x,y])
         
         #cv2.imshow('PyGO', img_c_trim) 

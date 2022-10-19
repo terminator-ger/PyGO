@@ -19,6 +19,8 @@ Image = NDArray
 Patches = List[Image]
 Mask = B1CImage
 
+Homography = NDArray[Shape["3,3"], Float32]
+
 FlattenGoBoardC19 = NDArray[Shape["1,361"], Int]
 FlattenGoBoardC13 = NDArray[Shape["1,169"], Int]
 FlattenGoBoardC9 = NDArray[Shape["1,81"], Int]

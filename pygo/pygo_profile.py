@@ -7,7 +7,9 @@ import cProfile
 if __name__ == "__main__":
     pygo = PyGO()
     #ui = PyGOTk(pygo=pygo)
-    cProfile.run('pygo.loop10x()')
+    #ui.run()
+    cProfile.run('pygo.loopDetect10x()')
+    #ui.quit()
     #ui.run()
     #pygo.loop()
 
