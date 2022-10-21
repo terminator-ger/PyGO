@@ -17,6 +17,9 @@ def C2N(c: str) -> int:
         return 1
     elif c.upper() == 'E':
         return 2
+    elif c is None:
+        return 2
+
 
 class COLOR(Enum):
     WHITE = 0

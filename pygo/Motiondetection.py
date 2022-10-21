@@ -35,7 +35,7 @@ class MotionDetection(DebugInfoProvider):
         self.imgLast = img
         self.hist = 0
 
-    def hasMotion(self, img: B3CImage) -> bool:
+    def hasNoMotion(self, img: B3CImage) -> bool:
         img = cv2.resize(img, None, fx=0.25,fy=0.25)
         if img.shape != self.imgLast.shape:
             #first iteration after vp detect
@@ -143,7 +143,7 @@ class MotionDetectionMOG2(DebugInfoProvider):
         for k in self.settings.keys():
             self.settings[k] = new_settings[k].get()
 
-    def hasMotion(self, img: B3CImage) -> bool:
+    def hasNoMotion(self, img: B3CImage) -> bool:
         if self.resize:
             img = cv2.resize(img, None, fx=0.25,fy=0.25)
         fgmask = self.fgbg.apply(img, self.settings['MotionDetectionFactor'])
@@ -152,20 +152,20 @@ class MotionDetectionMOG2(DebugInfoProvider):
             # hand onto of board
             self.motion_active = True
             self.hist = 0
-            return True
+            return False
 
         if self.motion_active and fgmask.sum() <= 0:
             if self.hist < 1:
                 self.hist += 1
-                return True
+                return False
             else:
                 # hand out of board
                 self.motion_active = False
                 self.hist = 0
                 logging.debug('No Motion')
-                return False
+                return True
 
-        return True
+        return False
 
     def getMask(self, img: B3CImage) -> Mask:
         if self.resize:

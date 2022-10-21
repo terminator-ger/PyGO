@@ -32,6 +32,16 @@ class PyGO(Timing):
     
         self.PatchClassifier = CircleClassifier(self.Board, 19)
 
+    def startNewGame(self):
+        if not self.Board.hasEstimate:
+            self.Board.calib(self.img_cam)
+            
+        if self.Board.hasEstimate:
+            self.Game.startNewGame(19)
+            self.img_cropped = self.Board.extract(self.img_cam)
+            val = self.PatchClassifier.predict(self.img_cropped)
+            self.Game.updateState(val)
+
     def loop10x(self) -> None:
         for _ in range(10):
             self.run_once()
@@ -54,7 +64,7 @@ class PyGO(Timing):
 
             if self.Board.hasEstimate:
                 self.img_cropped = self.Board.extract(self.img_cam)
-                if not self.Motiondetection.hasMotion(self.img_cropped):
+                if self.Motiondetection.hasNoMotion(self.img_cropped) and not self.Game.isPaused():
                     if self.PatchClassifier.hasWeights:
                         #if self.BoardMotionDetecion.checkIfBoardWasMoved(self.img_cropped):
                         #    logging.debug('Realign Board')
@@ -78,6 +88,9 @@ class PyGO(Timing):
                     self.img_overlay = self.Plot.plot_overlay(self.Game.state,
                                                                 self.Board.go_board_shifted,
                                                                 self.img_cropped)
+                    self.img_virtual = self.Plot.plot_virt_grid(self.Game.state, 
+                                                        self.Board.grd_overlay, 
+                                                        self.Board.grid_img)
             else:
                 #self.tic('coverlay')
                 img = self.Board.get_corners_overlay(self.img_cam)

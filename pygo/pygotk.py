@@ -18,7 +18,7 @@ from tkinter import filedialog as fd
 import tkinter.scrolledtext as scrolledtext
 
 
-from pygo.Signals import Signals
+from pygo.Signals import GamePauseResume, GameTreeBack, GameTreeForward, Signals
 from pygo.core import PyGO
 from pygo.classifier import GoClassifier, HaarClassifier, IlluminanceClassifier, CircleClassifier
 from pygo.Motiondetection import MotionDetectionMOG2
@@ -64,7 +64,6 @@ class PyGOTk:
         self.menubar = tk.Menu(self.root, tearoff=0)
 
         filemenu = tk.Menu(self.menubar, tearoff=0)
-        #filemenu.add_command(label="Open", command=self.onFileOpen)
         filemenu.add_command(label="Save", command=self.onFileSave)
         filemenu.add_command(label="Settings", command=self.onSettings)
         filemenu.add_command(label="Exit", command=self.onFileExit)
@@ -122,12 +121,35 @@ class PyGOTk:
         self.move_log = scrolledtext.ScrolledText(self.root, undo=True, width=10)
         self.move_log.grid(column=1, row=0, padx=5, pady=5)
 
+        self.sep_h = ttk.Separator(self.root, orient='horizontal')
+        self.sep_h.grid(column=0, row=1, sticky='ew')
+
+        self.go_tree_display = tk.PanedWindow(self.root)
+        self.go_tree_display.grid(column=0, row=2)
+
+        self.go_tree_bwd   = tk.Button(self.go_tree_display, text="<=", command=self.GameTreeBack)
+        self.go_tree_bwd.grid(column=0, row=0)
+        self.go_tree_pause = tk.Button(self.go_tree_display, text="|>", command=self.GamePause)
+        self.go_tree_pause.grid(column=1, row=0)
+        self.go_tree_fwd   = tk.Button(self.go_tree_display, text="=>", command=self.GameTreeForward)
+        self.go_tree_fwd.grid(column=2, row=0)
+
+
         self._next_job = None
         self.QUIT = False
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.settings = {'AllowUndo' : tk.BooleanVar(value=False),
                          'MotionDetectionFactor': tk.DoubleVar(value=0.9),
         }
+
+    def GamePause(self) -> None:
+        Signals.emit(GamePauseResume)
+   
+    def GameTreeBack(self) -> None:
+        Signals.emit(GameTreeBack)
+
+    def GameTreeForward(self) -> None:
+        Signals.emit(GameTreeForward)
     
     def switchState(self, fn, name, state):
         if state.get():
@@ -199,7 +221,7 @@ class PyGOTk:
 
 
     def on_closing(self):
-        if self.pygo.Game.sgf is not None and len(self.pygo.Game.sgf.get_root()) > 0:
+        if self.pygo.Game.game_tree is not None and len(self.pygo.Game.game_tree.get_root()) > 0:
             if tk.messagebox.askokcancel("Quit", "Do you want to quit without saving?"):
                 self.QUIT = True
                 self.root.destroy()
@@ -237,8 +259,7 @@ class PyGOTk:
         self.move_log.insert('end', 'New Game\n')
         self.move_log.insert('end', '{}\n'.format(cur_time))
         self.move_log.insert('end', '==========\n')
-        
-        self.pygo.Game.startNewGame(19)
+        self.pygo.startNewGame()
 
     def run(self) -> None:
         self.root.after(1, self.update)
@@ -283,8 +304,15 @@ class PyGOTk:
             #cv2.imwrite('out.png', self.img_overlay)
             #self.img_overlay = plot_overlay(state, self.grid, self.img_overlay)
 
-        if self.pygo.msg != '':
+        if str(self.pygo.msg) != '':
             self.logMove(self.pygo.msg)
+
+
+        if self.pygo.Game.GS == GameState.RUNNING:
+            self.go_tree_pause.configure(text='||')
+        elif self.pygo.Game.GS == GameState.PAUSED:
+            self.go_tree_pause.configure(text='|>')
+    
 
         # switch view
         view = self.viewVar.get()

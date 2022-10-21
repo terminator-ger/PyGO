@@ -1,6 +1,7 @@
 import unittest
 
 from pygo.Game import Game
+from pygo.Signals import GameTreeBack, GameTreeForward, Signals
 from pygo.utils.color import  N2C, C2N, COLOR
 import pdb
 
@@ -8,6 +9,42 @@ from pudb import set_trace
 
 
 class GameTests(unittest.TestCase):
+
+    def testUndoRedo(self):
+        self.game = Game()
+        self.game.startNewGame()
+        self.game._test_set('B',(3,3))
+        self.game._test_set('W',(15,15))
+        self.game._test_set('B',(3,4))
+        self.game._test_set('W',(3,15))
+
+        self.game._Game__game_tree_back()
+        self.assertEqual(self.game.last_color, COLOR.BLACK.value)
+        self.assertEqual(self.game.last_x, 3)
+        self.assertEqual(self.game.last_y, 4)
+
+        self.game._Game__game_tree_back()
+        self.assertEqual(self.game.last_color, COLOR.WHITE.value)
+        self.assertEqual(self.game.last_x, 15)
+        self.assertEqual(self.game.last_y, 15)
+ 
+        self.game._Game__game_tree_forward()
+        self.assertEqual(self.game.last_color, COLOR.BLACK.value)
+        self.assertEqual(self.game.last_x, 3)
+        self.assertEqual(self.game.last_y, 4)
+
+        self.game._Game__game_tree_back()
+        self.assertEqual(self.game.last_color, COLOR.WHITE.value)
+        self.assertEqual(self.game.last_x, 15)
+        self.assertEqual(self.game.last_y, 15)
+ 
+        self.game._Game__game_tree_back()
+        self.assertEqual(self.game.last_color, COLOR.BLACK.value)
+        self.assertEqual(self.game.last_x, 3)
+        self.assertEqual(self.game.last_y, 3)
+
+
+
         
     def testCountLibertiesCorner(self):
         self.game = Game()
@@ -220,6 +257,7 @@ class GameTests(unittest.TestCase):
 
         self.assertEqual(updatedState[0,0], COLOR.NONE.value)
         self.assertEqual(updatedState[1,0], COLOR.NONE.value)
+
 
 if __name__ == '__main__':
     unittest.main()

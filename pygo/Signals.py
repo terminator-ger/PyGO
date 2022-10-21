@@ -31,3 +31,12 @@ class OnSettingsChanged(Signals):
 
 class OnBoardMoved(Signals):
     pass
+
+class GameTreeBack(Signals):
+    pass
+
+class GameTreeForward(Signals):
+    pass
+
+class GamePauseResume(Signals):
+    pass
