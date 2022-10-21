@@ -6,19 +6,23 @@ import numpy as np
 import pdb
 import threading
 from datetime import datetime
-import tkinter as tk
 import PIL
 from PIL import ImageTk
 import logging
-import tkinter.scrolledtext as scrolledtext
 from functools import partial
-from tkinter import filedialog as fd
 
+
+import tkinter as tk
+from tkinter import ttk
+from tkinter import filedialog as fd
+import tkinter.scrolledtext as scrolledtext
+
+
+from pygo.Signals import Signals
 from pygo.core import PyGO
 from pygo.classifier import GoClassifier, HaarClassifier, IlluminanceClassifier, CircleClassifier
 from pygo.Motiondetection import MotionDetectionMOG2
 from pygo.GoBoard import GoBoard
-from pygo.utils.plot import plot_overlay
 from pygo.utils.typing import B3CImage, Image, NetMove
 from pygo.utils.data import save_training_data
 from pygo.utils.misc import flattenList
@@ -26,6 +30,7 @@ from pygo.utils.debug import DebugInfo
 from pygo.Game import Game, GameState
 from pygo.Ensemble import SoftVoting, MajorityVoting
 from pygo.Webcam import Webcam
+from pygo.Signals import Signals, OnSettingsChanged
 
 class PyGOTk:
     #types
@@ -43,7 +48,7 @@ class PyGOTk:
             self.weOwnControllLooop = False
 
         self.DebugInfo = DebugInfo([self.pygo.Motiondetection, 
-                                    self.pygo.Masker, 
+                                    #self.pygo.BoardMotionDetecion, 
                                     self.pygo.Board, 
                                     self.pygo.Game,
                                     self.pygo.PatchClassifier])
@@ -61,6 +66,7 @@ class PyGOTk:
         filemenu = tk.Menu(self.menubar, tearoff=0)
         #filemenu.add_command(label="Open", command=self.onFileOpen)
         filemenu.add_command(label="Save", command=self.onFileSave)
+        filemenu.add_command(label="Settings", command=self.onSettings)
         filemenu.add_command(label="Exit", command=self.onFileExit)
 
         boardmenu = tk.Menu(self.menubar, tearoff=0)
@@ -68,10 +74,18 @@ class PyGOTk:
 
         gamemenu = tk.Menu(self.menubar, tearoff=0)
         gamemenu.add_command(label='Start new', command=self.onGameNew)
+        
+        self.viewVar = tk.IntVar(value=0)
+        viewmenu = tk.Menu(self.menubar, tearoff=0)
+        viewmenu.add_radiobutton(label="Overlay",  value=0, variable=self.viewVar)
+        viewmenu.add_radiobutton(label="Original", value=1, variable=self.viewVar)
+        viewmenu.add_radiobutton(label="Virtual",  value=2, variable=self.viewVar)
+
 
         self.menubar.add_cascade(label="File", menu=filemenu)
         self.menubar.add_cascade(label="Game", menu=gamemenu)
         self.menubar.add_cascade(label="Board", menu=boardmenu)
+        self.menubar.add_cascade(label="View", menu=viewmenu)
 
         self.root.config(menu=self.menubar)
         
@@ -111,6 +125,9 @@ class PyGOTk:
         self._next_job = None
         self.QUIT = False
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.settings = {'AllowUndo' : tk.BooleanVar(value=False),
+                         'MotionDetectionFactor': tk.DoubleVar(value=0.9),
+        }
     
     def switchState(self, fn, name, state):
         if state.get():
@@ -127,7 +144,58 @@ class PyGOTk:
     def setLogLevelWarn(self) -> None:
         logging.getLogger().setLevel(logging.WARN)
 
+    def onSettings(self):
+        self.settings_window = tk.Toplevel(self.root)
+        self.settings_window.title('Settings')
+        self.settings_window.grid()
+        packlist = []
+        btn1 = tk.Checkbutton(self.settings_window, 
+                                text='Allow undoing moves during recording',
+                                variable=self.settings['AllowUndo'],
+                                onvalue=True, 
+                                offvalue=False)
+        packlist.append(btn1)
 
+        lbl1 = tk.Label(self.settings_window, text="Motion Detection Agressiveness")
+        packlist.append(lbl1)
+
+        sep = ttk.Separator(self.settings_window, orient='horizontal')
+        packlist.append(sep)
+
+        switch_frame = tk.Frame(self.settings_window)
+        packlist.append(switch_frame)
+
+        low_button = tk.Radiobutton(switch_frame, 
+                                    text="Low", 
+                                    variable=self.settings['MotionDetectionFactor'],
+                                    indicatoron=False, 
+                                    value=0.9, 
+                                    width=8)
+        med_button = tk.Radiobutton(switch_frame, 
+                                    text="Medium", 
+                                    variable=self.settings['MotionDetectionFactor'],
+                                    indicatoron=False, 
+                                    value=0.92, 
+                                    width=8)
+        high_button = tk.Radiobutton(switch_frame, 
+                                    text="High", 
+                                    variable=self.settings['MotionDetectionFactor'],
+                                    indicatoron=False, 
+                                    value=0.95, 
+                                    width=8)
+        low_button.pack(side="left")
+        med_button.pack(side="left")
+        high_button.pack(side="left")
+        for item in packlist:
+            item.pack()
+
+        self.settings_window.protocol("WM_DELETE_WINDOW", self.on_settings_closing)
+
+    def on_settings_closing(self):
+        logging.debug("Settings changed")
+        Signals.emit(OnSettingsChanged, self.settings)
+
+        self.settings_window.destroy()
 
 
     def on_closing(self):
@@ -206,17 +274,27 @@ class PyGOTk:
         if self.weOwnControllLooop:
             self.pygo.run_once()
         
-        state = self.pygo.Game.getCurrentState()
-        self.img_overlay = self.pygo.img_overlay.copy()
-        if (state is not None and \
-            self.grid is not None and\
-            self.pygo.Board.hasEstimate):
+        #state = self.pygo.Game.getCurrentState()
+        ##self.img_overlay = self.pygo.img_overlay.copy()
+        ##self.img_overlay = self.pygo.img_cam.copy()
+        #kif (state is not None and \
+        #        self.grid is not None and\
+        #        self.pygo.Board.hasEstimate):
             #cv2.imwrite('out.png', self.img_overlay)
-            self.img_overlay = plot_overlay(state, self.grid, self.img_overlay)
-            if self.pygo.msg != '':
-                self.logMove(self.pygo.msg)
+            #self.img_overlay = plot_overlay(state, self.grid, self.img_overlay)
 
-        self.tkimage = self.__np2tk(self.img_overlay)
+        if self.pygo.msg != '':
+            self.logMove(self.pygo.msg)
+
+        # switch view
+        view = self.viewVar.get()
+        if view == 0:
+            self.tkimage = self.__np2tk(self.pygo.img_overlay)
+        elif view == 1:
+            self.tkimage = self.__np2tk(self.pygo.img_cropped)
+        elif view == 2:
+            self.tkimage = self.__np2tk(self.pygo.img_virtual)
+
         self.go_board_display.configure(image=self.tkimage)
         self.go_board_display.image = self.tkimage
         self.root.after(1, self.update)

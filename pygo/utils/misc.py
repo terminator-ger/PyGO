@@ -21,6 +21,43 @@ def get_ref_go_board_coords(min, max):
     go_board += np.array(min)
     return go_board.reshape(-1,2)
 
+def get_grid_lines(grid):
+    grid = grid.reshape(19,19,2) 
+    x_min = grid[0,:,0].min()
+    x_max = grid[18,:,0].min()
+    y_min = grid[:,0,1].max()
+    y_max = grid[:,18,1].max()
+    dx = x_max - x_min
+    dy = y_max - y_min
+    ddx = dx / 18
+    ddy = dy / 18
+    border = 20
+    bhalf = border/2
+    grid_img = np.ones((int(dy)+border,int(dx)+border,3),dtype=np.uint8)*255
+
+    lines = np.zeros((19*2,4))
+
+    for i in range(19):
+        lines[i] = [x_min, i*ddy, x_max, i*ddy]
+        pt1 = np.array([bhalf, bhalf+i*ddy], dtype=int)
+        pt2 = np.array([dx+bhalf,bhalf+i*ddy], dtype=int)
+        cv2.line(grid_img, pt1, pt2, (0,0,255), 1)
+        
+        lines[19+i] = [i*ddx, y_min, i*ddx, y_max]
+        pt1 = np.array([bhalf+i*ddx, bhalf], dtype=int)
+        pt2 = np.array([bhalf+i*ddx, dy+bhalf], dtype=int)
+        cv2.line(grid_img, pt1, pt2, (0,0,255), 1)
+    
+    for pt1 in [int(3*ddx+bhalf), int(9*ddx+bhalf), int(15*ddx+bhalf)]:
+        for pt2 in [int(3*ddy+bhalf), int(9*ddy+bhalf), int(15*ddy+bhalf)]:
+            cv2.circle(grid_img, (pt1, pt2), color=(0,0,255), radius=3, thickness=-1)
+    updated_grid = np.zeros((19,19,2))
+    for i,x in enumerate(np.linspace(bhalf, bhalf+dx, 19)):
+        for j,y in enumerate(np.linspace(bhalf, bhalf+dy, 19)):
+            updated_grid[i,j] = [x,y]
+    return lines, grid_img, updated_grid
+
+
 def flattenList(l: List) -> List:
     return [item for sublist in l for item in sublist]
 
@@ -100,7 +137,7 @@ def get_segment_crop(img,tol=0, mask=None):
         mask = img > tol
     return img[np.ix_(mask.any(1), mask.any(0))]
 
-def mask_board(image, go_board):
+def mask_board(image, go_board, border_size=15):
     mask = np.zeros_like(image)
     go = go_board.reshape(19,19,2)
     corners = np.array([go[0,0], 
@@ -108,7 +145,7 @@ def mask_board(image, go_board):
                         go[18,18], 
                         go[18,0]]).reshape(-1,1,2).astype(int)
     mask = cv2.fillConvexPoly(mask, corners, (255,255,255))
-    mask = cv2.dilate(mask, np.ones((3,3)), iterations=15)
+    mask = cv2.dilate(mask, np.ones((3,3)), iterations=border_size)
     if len(mask.shape) == 3:
         rect = cv2.boundingRect(cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY))               # function that computes the rectangle of interest
     else:

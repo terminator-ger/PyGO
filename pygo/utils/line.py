@@ -2,6 +2,7 @@ import numpy as np
 import pdb
 import cv2
 from inpoly import inpoly2
+from pygo.utils.typing import Lines, Line
 
 def warp_lines(lines, H):
     ones = np.ones((lines.shape[0], 1))
@@ -145,3 +146,90 @@ def intersect(x,y):
         
     return np.array(i)
 
+
+def min_line_endpoint_dist(l1: Line, l2: Line) -> float:
+    dx1 = l1[0] - l2[0]
+    dy1 = l1[1] - l2[1]
+
+    dx2 = l1[0] - l2[2]
+    dy2 = l1[1] - l2[3]
+
+    dx3 = l1[2] - l2[0]
+    dy3 = l1[3] - l2[1]
+
+    dx4 = l1[2] - l2[2]
+    dy4 = l1[3] - l2[3]
+
+    d1 = np.sqrt(dx1*dx1 + dy1*dy1)
+    d2 = np.sqrt(dx2*dx2 + dy2*dy2)
+    d3 = np.sqrt(dx3*dx3 + dy3*dy3)
+    d4 = np.sqrt(dx4*dx4 + dy4*dy4)
+    return min(d1,d2,d3,d4)
+
+def line_angle_diff(l1: Line, l2: Line) -> float:
+    dx1 = l1[0] - l1[2]
+    dy1 = l1[1] - l1[3]
+    a1 = np.arctan2(dy1, dx1)
+    dx1 = l1[2] - l1[0]
+    dy1 = l1[3] - l1[1]
+    a11 = np.arctan2(dy1, dx1)
+
+
+    dx2 = l2[0] - l2[2]
+    dy2 = l2[1] - l2[3]
+    a2 = np.arctan2(dy2, dx2)
+    dx2 = l2[2] - l2[0]
+    dy2 = l2[3] - l2[1]
+    a22 = np.arctan2(dy2, dx2)
+    a1 = max(a1, a11)
+    a2 = max(a2, a22)
+
+    #print("A1: {}".format(a1/np.pi*180))
+    #print("A2: {}".format(a2/np.pi*180))
+
+    return np.abs(a1 - a2)
+
+def merge_lines(l1: Line, l2: Line) -> Line:
+    dx1 = l1[0] - l2[0]
+    dx2 = l1[0] - l2[2]
+    dx3 = l1[2] - l2[0]
+    dx4 = l1[2] - l2[2]
+
+    dy1 = l1[1] - l2[1]
+    dy2 = l1[1] - l2[3]
+    dy3 = l1[3] - l2[1]
+    dy4 = l1[3] - l2[3]
+
+    d1 = np.sqrt(dx1*dx1 + dy1*dy1)
+    d2 = np.sqrt(dx2*dx2 + dy2*dy2)
+    d3 = np.sqrt(dx3*dx3 + dy3*dy3)
+    d4 = np.sqrt(dx4*dx4 + dy4*dy4)   
+
+    max_dist_idx = np.argmax([d1,d2,d3,d4])
+    if max_dist_idx == 0:
+        return np.array([l1[0],l1[1], l2[0],l2[1]])
+    elif max_dist_idx == 1:
+        return np.array([l1[0],l1[1], l2[2],l2[3]])
+    elif max_dist_idx == 2:
+        return np.array([l1[2],l1[3], l2[0],l2[1]])
+    elif max_dist_idx == 3:
+        return np.array([l1[2],l1[3], l2[2],l2[3]])
+
+
+def merge_lines_mean(l1:Line, l2:Line) -> Line:
+    dx1 = l1[0] - l2[0]
+    dy1 = l1[1] - l2[1]
+
+    dx2 = l1[0] - l2[2]
+    dy2 = l1[1] - l2[3]
+
+    d1 = np.sqrt(dx1*dx1 + dy1*dy1)
+    d2 = np.sqrt(dx2*dx2 + dy2*dy2)
+
+    max_dist_idx = np.argmin([d1,d2])
+    if max_dist_idx == 0:
+        return np.array([(l1[0]+l2[0])/2, (l1[1]+l2[1])/2, 
+                         (l1[2]+l2[2])/2, (l1[3]+l2[3])/2])
+    elif max_dist_idx == 1:
+        return np.array([(l1[0]+l2[2])/2, (l1[1]+l2[3])/2, 
+                         (l1[2]+l2[0])/2, (l1[3]+l2[1])/2])

@@ -326,6 +326,8 @@ class window:
                                 cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3)))
             markers = cv2.GaussianBlur(toGrayImage(markers), (3,3), 2)
             return markers
+        mask = 255-watershed(cv2.bitwise_or(cv2.bitwise_not(img_b), 
+                                            cv2.bitwise_not(img_w)))
 
         mask_b = 255-watershed(255-img_b)
         mask_w = 255-watershed(255-img_w)
@@ -342,9 +344,9 @@ class window:
             keypoints = detector.detect(i)
             img_c = cv2.drawKeypoints(img_c, keypoints, np.array([]), (0,0,255), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
 
-        im_with_kp = np.vstack((toColorImage(mask_b), 
-                                toColorImage(mask_w),
-                                img_c))
+            im_with_kp = np.vstack((toColorImage(mask_b), 
+                                    toColorImage(mask_w),
+                                    img_c))
         cv2.imshow(title_window, im_with_kp)
 
 title_window = 'Blobb'
