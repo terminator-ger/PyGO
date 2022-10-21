@@ -6,7 +6,7 @@ import cv2
 from inpoly import inpoly2
 from lu_vp_detect import VPDetection, LS_ALG
 from skimage import data, color, img_as_ubyte, exposure, transform, img_as_float
-from pygo.utils.debug import DebugInfo, DebugInfoProvider
+from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
 from pygo.utils.homography import compute_homography_and_warp, compute_homography
 import matplotlib.pyplot as plt
 import math
@@ -38,14 +38,17 @@ class debugkeys(Enum):
 class NoVanishingPointsDetectedException(Exception):
     pass
 
-class GoBoard(DebugInfoProvider):
+class GoBoard(DebugInfoProvider, Timing):
     def __init__(self, CameraCalib):
-        super().__init__()
+        DebugInfoProvider.__init__(self)
+        Timing.__init__(self)
+
         self.H = np.eye(3)
         self.vp = VPDetection(focal_length=CameraCalib.focal, 
                               principal_point=CameraCalib.center, 
-                              length_thresh=50)
-                              #line_search_alg=LS_ALG.HOUGH)
+                              length_thresh=50,
+                              line_search_alg=LS_ALG.LSD)
+        self.current_unwarped = None
         self.grid = None
         self.go_board_shifted = None
         self.hasEstimate = False
@@ -136,7 +139,7 @@ class GoBoard(DebugInfoProvider):
         corners = []
         corners_mat = None
         #cv2.imshow('',img.copy())
-        #cv2.waitKey(100)
+        #cv2.waitKey(1000)
 
         best_image = np.zeros_like(img)
         img_out = None
@@ -267,18 +270,22 @@ class GoBoard(DebugInfoProvider):
 
     def get_corners_overlay(self, img: B3CImage) -> NDArray:
         img_gray = toGrayImage(img)
+        img_gray = cv2.equalizeHist(img_gray)
+        #self.tic('get_vp')
         try:
             vp1, vp2 = self.get_vp(img_gray)
         except NoVanishingPointsDetectedException:
             return img
+        img_bw = cv2.inRange(img_gray, 0, 45)
+        #self.toc('get_vp')
         #print(vp1, vp2)
         #vpd = self.vp.create_debug_VP_image()
         #cv2.imshow('New', vpd)
         #cv2.waitKey(1)
-        thresh, img_bw = cv2.threshold(img_gray, \
-                                    0, \
-                                    255, \
-                                    cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
+        #thresh, img_bw = cv2.threshold(img_gray, \
+        #                            0, \
+        #                            255, \
+        #                            cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
         #cv2.imshow('overlay', img_bw)
         #cv2.waitKey(1)
         # assumption most lines in the image are from the go board -> vp give us the plane
@@ -332,7 +339,9 @@ class GoBoard(DebugInfoProvider):
         # assumption most lines in the image are from the go board -> vp give us the plane
         # the contour which belongs to those vp is the board
         corners = self.detect_board_corners(vp1, vp2, img_bw.copy())    
-
+        if corners is None:
+            logging.error("Could not detect Go-Board corners!")
+            return
 
         self.grid = get_ref_go_board_coords(np.min(corners, axis=0), 
                                             np.max(corners, axis=0))
@@ -587,6 +596,7 @@ class GoBoard(DebugInfoProvider):
             return True
  
     def extract(self, img):
+        self.current_unwarped = img
         img_w = cv2.warpPerspective(img, np.linalg.inv(self.H), self.img_limits)
 
         #cv2.imshow('PyGO', img_w) 

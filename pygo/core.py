@@ -3,7 +3,7 @@ import pdb
 import logging
 
 from pygo.classifier import *
-from pygo.Motiondetection import MotionDetectionMOG2, MotionDetectionBorderMask, MotionDetectionBGSubCNT
+from pygo.Motiondetection import BoardShakeDetectionMOG2, MotionDetectionMOG2, MotionDetectionBorderMask, MotionDetectionBGSubCNT
 from pygo.GoBoard import GoBoard
 from pygo.utils.plot import Plot
 from pygo.utils.debug import Timing
@@ -21,9 +21,9 @@ class PyGO(Timing):
         self.img_virtual = self.img_cam
 
         self.Motiondetection = MotionDetectionMOG2(self.img_cam)
+        #self.BoardMotionDetecion = BoardShakeDetectionMOG2()
         #self.Motiondetection = MotionDetectionBGSubCNT(self.img_cam)
-       # self.Motiondetection = MotionDetectionBorderMask()
-        #self.Masker = MotionDetectionMOG2(self.img_cam, resize=False)
+
         self.Board = GoBoard(self.webcam.getCalibration())
         self.Plot = Plot()
         self.Game = Game()
@@ -53,40 +53,35 @@ class PyGO(Timing):
             self.msg = ''
 
             if self.Board.hasEstimate:
-                #self.tic('extract')
                 self.img_cropped = self.Board.extract(self.img_cam)
-                #self.toc('extract')
-                self.tic('motion')
                 if not self.Motiondetection.hasMotion(self.img_cropped):
-                    self.toc('motion')
-
                     if self.PatchClassifier.hasWeights:
-                        cv2.imwrite('out.png', self.img_cropped)
-                        self.tic('classifier')
+                        #if self.BoardMotionDetecion.checkIfBoardWasMoved(self.img_cropped):
+                        #    logging.debug('Realign Board')
+                        #    self.Board.calib(self.img_cam)
+
                         val = self.PatchClassifier.predict(self.img_cropped)
-                        self.toc('classifier')
-                        self.tic('overlay1')
                         self.img_overlay = self.Plot.plot_overlay(val, 
                                                         self.Board.go_board_shifted, 
                                                         self.img_cropped)
-                        self.toc('overlay1')
-                        self.tic('overlay2')
                         self.img_virtual = self.Plot.plot_virt_grid(val, 
                                                         self.Board.grd_overlay, 
                                                         self.Board.grid_img)
-                        self.toc('overlay2')
 
                         logging.debug(val.reshape(19,19))
 
-                        self.tic('gamestate')
                         self.msg = self.Game.updateState(val)
-                        self.toc('gamestate')
                         if self.Katrain is not None:
                             self.Katrain.send(self.msg)
+                else:
+                    #overlay old state during motion
+                    self.img_overlay = self.Plot.plot_overlay(self.Game.state,
+                                                                self.Board.go_board_shifted,
+                                                                self.img_cropped)
             else:
-                self.tic('coverlay')
+                #self.tic('coverlay')
                 img = self.Board.get_corners_overlay(self.img_cam)
-                self.toc('coverlay')
+                #self.toc('coverlay')
                 self.img_overlay = img
                 self.img_virtual = img
                 self.img_cropped = img

@@ -6,7 +6,7 @@ import cv2
 from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
 from pygo.utils.image import toByteImage, toGrayImage
 from pygo.utils.typing import Image, B3CImage, Mask
-from pygo.Signals import OnBoardDetected
+from pygo.Signals import OnBoardDetected, OnSettingsChanged, Signals, OnBoardMoved
 from skimage.metrics import structural_similarity
 import matplotlib.pyplot as plt
 import bgsubcnt
@@ -17,6 +17,7 @@ import logging
 
 class debugkeys(Enum):
     Motion = auto()
+    BoardMotion = auto()
 
 
 class MotionDetection(DebugInfoProvider):
@@ -132,11 +133,20 @@ class MotionDetectionMOG2(DebugInfoProvider):
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(3,3))
         self.fgbg = cv2.createBackgroundSubtractorMOG2()
         self.motion_active = False
+        self.settings = {
+            'MotionDetectionFactor' : 0.9,
+        }
+        Signals.subscribe(OnSettingsChanged, self.settings_updated)
+
+    def settings_updated(self, args):
+        new_settings = args[0]
+        for k in self.settings.keys():
+            self.settings[k] = new_settings[k].get()
 
     def hasMotion(self, img: B3CImage) -> bool:
         if self.resize:
             img = cv2.resize(img, None, fx=0.25,fy=0.25)
-        fgmask = self.fgbg.apply(img,0.9)
+        fgmask = self.fgbg.apply(img, self.settings['MotionDetectionFactor'])
         fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel)
         if not self.motion_active and fgmask.sum() > 10:
             # hand onto of board
@@ -144,7 +154,7 @@ class MotionDetectionMOG2(DebugInfoProvider):
             self.hist = 0
             return True
 
-        if self.motion_active and fgmask.sum() == 0:
+        if self.motion_active and fgmask.sum() <= 0:
             if self.hist < 1:
                 self.hist += 1
                 return True
@@ -163,6 +173,43 @@ class MotionDetectionMOG2(DebugInfoProvider):
         fgmask = self.fgbg.apply(img)
         fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel)
         return fgmask
+
+class BoardShakeDetectionMOG2(DebugInfoProvider):
+    '''
+        Detects Motion between two frames and emits a reinitialization signal
+        based on a simple threshold 
+    
+    '''
+    def __init__(self, resize:bool = True) -> None:
+        DebugInfoProvider.__init__(self)
+        
+        self.resize=resize
+        self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(3,3))
+        self.fgbg = cv2.createBackgroundSubtractorMOG2()
+        self.settings = {
+            'MotionDetectionFactor' : 0.1,
+        }
+        for key in debugkeys:
+            self.available_debug_info[key.name] = False
+        #Signals.subscribe(OnSettingsChanged, self.settings_updated)
+
+    #def settings_updated(self, args):
+    #    new_settings = args[0]
+    #    for k in self.settings.keys():
+    #        self.settings[k] = new_settings[k].get()
+
+    def checkIfBoardWasMoved(self, img: B3CImage) -> bool:
+        if self.resize:
+            img = cv2.resize(img, None, fx=0.25,fy=0.25)
+        fgmask = self.fgbg.apply(img, self.settings['MotionDetectionFactor'])
+        fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel)
+        self.showDebug(debugkeys.BoardMotion, fgmask)
+
+        if fgmask.sum() > 400:
+            return True
+        else:
+            return False
+            #Signals.emit(OnBoardMoved)
 
 
 
@@ -202,15 +249,15 @@ class MotionDetectionBGSubCNT(DebugInfoProvider):
             return True
 
         if self.motion_active and fgmask.sum() <= 3060:
-            if self.hist < 1:
-                self.hist += 1
-                return True
-            else:
-                # hand out of board
-                self.motion_active = False
-                self.hist = 0
-                logging.debug('No Motion')
-                return False
+            #if self.hist < 1:
+            #    self.hist += 1
+            #    return True
+            #else:
+            # hand out of board
+            self.motion_active = False
+            self.hist = 0
+            logging.debug('No Board shift detected')
+            return False
 
         return True
 

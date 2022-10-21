@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
 from typing import Callable
-import pdb
-from pygo.utils.typing import B3CImage, Corners, Homography
 
 class Signals(ABC):
     subs = {}
@@ -28,6 +26,8 @@ class OnBoardDetected(Signals):
 class OnBoardGridSizeKnown(Signals):
     pass
 
-
 class OnSettingsChanged(Signals):
+    pass
+
+class OnBoardMoved(Signals):
     pass

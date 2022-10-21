@@ -68,7 +68,7 @@ class Plot:
                 color = (0,0,0)
                 thickness=-1
             elif v == 2:
-                color = (255, 0, 0)
+                color = (100,100,100)
                 thickness=1
 
             img = cv2.circle(img, 

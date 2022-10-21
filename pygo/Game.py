@@ -56,7 +56,6 @@ class Game(DebugInfoProvider, Timing):
         new_settings = args[0]
         for k in self.settings.keys():
             self.settings[k] = new_settings[k].get()
-        print(self.settings)
 
 
     def getCurrentState(self) -> GoBoardClassification:
@@ -170,9 +169,33 @@ class Game(DebugInfoProvider, Timing):
         else:
             return ([],[])
 
+    def _check_handicap(self, newState) -> NetMove:
+
+        isInTree, notInTree = self.whichMovesAreInTheGameTree(newState)
+        # we just initialized a new game we could have handicap stones
+        # all black and on the defined positions
+        handicap_positions = [(3,3), (3,15), (15,3), (15,15), 
+                              (3,9),  (9,3), (15,9), (9, 15), 
+                              (9,9)]
+        if all([x[0]=='B' for x in notInTree]) and\
+           all([x[1] in handicap_positions for x in notInTree]):
+            self.sgf_node.set("HA", len(notInTree))
+            moves = []
+            for c_str, (x,y) in notInTree:
+                self.state[x,y] = C2N("B")
+                moves.append((x,y))
+
+            self.sgf_node.set("AB", moves)
+            self.last_color = C2N("B")
+            self.last_x = x
+            self.last_y = y
+
 
     
     def updateStateWithChecks(self, state) -> NetMove:
+        if self.last_color == 2:
+            self._check_handicap(state)
+            return ["", -1, -1]
         state = self._check_move_validity(state)
         logging.debug(state)
 
@@ -362,8 +385,10 @@ class Game(DebugInfoProvider, Timing):
         '''
 
         changes = []
+
         isInTree, notInTree = self.whichMovesAreInTheGameTree(newState)
         old_markers_b, old_markers_w, count_b, count_w = self.__countLiberties(self.state)
+
 
         for (c_str, (x,y)) in isInTree:
             # when the stone was removed check the previous state

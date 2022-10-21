@@ -6,15 +6,19 @@ import numpy as np
 import pdb
 import threading
 from datetime import datetime
-import tkinter as tk
 import PIL
 from PIL import ImageTk
 import logging
-import tkinter.scrolledtext as scrolledtext
 from functools import partial
-from tkinter import filedialog as fd
-from pygo.Signals import Signals
 
+
+import tkinter as tk
+from tkinter import ttk
+from tkinter import filedialog as fd
+import tkinter.scrolledtext as scrolledtext
+
+
+from pygo.Signals import Signals
 from pygo.core import PyGO
 from pygo.classifier import GoClassifier, HaarClassifier, IlluminanceClassifier, CircleClassifier
 from pygo.Motiondetection import MotionDetectionMOG2
@@ -44,7 +48,7 @@ class PyGOTk:
             self.weOwnControllLooop = False
 
         self.DebugInfo = DebugInfo([self.pygo.Motiondetection, 
-                                    #self.pygo.Masker, 
+                                    #self.pygo.BoardMotionDetecion, 
                                     self.pygo.Board, 
                                     self.pygo.Game,
                                     self.pygo.PatchClassifier])
@@ -122,6 +126,7 @@ class PyGOTk:
         self.QUIT = False
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.settings = {'AllowUndo' : tk.BooleanVar(value=False),
+                         'MotionDetectionFactor': tk.DoubleVar(value=0.9),
         }
     
     def switchState(self, fn, name, state):
@@ -143,12 +148,46 @@ class PyGOTk:
         self.settings_window = tk.Toplevel(self.root)
         self.settings_window.title('Settings')
         self.settings_window.grid()
+        packlist = []
         btn1 = tk.Checkbutton(self.settings_window, 
                                 text='Allow undoing moves during recording',
                                 variable=self.settings['AllowUndo'],
                                 onvalue=True, 
                                 offvalue=False)
-        btn1.pack()
+        packlist.append(btn1)
+
+        lbl1 = tk.Label(self.settings_window, text="Motion Detection Agressiveness")
+        packlist.append(lbl1)
+
+        sep = ttk.Separator(self.settings_window, orient='horizontal')
+        packlist.append(sep)
+
+        switch_frame = tk.Frame(self.settings_window)
+        packlist.append(switch_frame)
+
+        low_button = tk.Radiobutton(switch_frame, 
+                                    text="Low", 
+                                    variable=self.settings['MotionDetectionFactor'],
+                                    indicatoron=False, 
+                                    value=0.9, 
+                                    width=8)
+        med_button = tk.Radiobutton(switch_frame, 
+                                    text="Medium", 
+                                    variable=self.settings['MotionDetectionFactor'],
+                                    indicatoron=False, 
+                                    value=0.92, 
+                                    width=8)
+        high_button = tk.Radiobutton(switch_frame, 
+                                    text="High", 
+                                    variable=self.settings['MotionDetectionFactor'],
+                                    indicatoron=False, 
+                                    value=0.95, 
+                                    width=8)
+        low_button.pack(side="left")
+        med_button.pack(side="left")
+        high_button.pack(side="left")
+        for item in packlist:
+            item.pack()
 
         self.settings_window.protocol("WM_DELETE_WINDOW", self.on_settings_closing)
 
