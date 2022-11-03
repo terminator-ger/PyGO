@@ -3,44 +3,52 @@ import pdb
 import logging
 
 from pygo.classifier import *
-from pygo.Motiondetection import BoardShakeDetectionMOG2, MotionDetectionMOG2, MotionDetectionBorderMask, MotionDetectionBGSubCNT
+from pygo.Motiondetection import *
 from pygo.GoBoard import GoBoard
 from pygo.utils.plot import Plot
 from pygo.utils.debug import Timing
 from pygo.Game import Game
 from pygo.Webcam import Webcam
+from pygo.Signals import *
 
 class PyGO(Timing):
     def __init__(self):
         Timing.__init__(self)
-        self.webcam = Webcam()
+        self.input_stream = Webcam()
 
-        self.img_cam = self.webcam.read()[1]
+        self.img_cam = self.input_stream.read()[1]
         self.img_overlay = self.img_cam
         self.img_cropped = self.img_cam
         self.img_virtual = self.img_cam
 
         self.Motiondetection = MotionDetectionMOG2(self.img_cam)
+        #self.Motiondetection = MotionDetectionHandTracker(self.img_cam)
         #self.BoardMotionDetecion = BoardShakeDetectionMOG2()
         #self.Motiondetection = MotionDetectionBGSubCNT(self.img_cam)
 
-        self.Board = GoBoard(self.webcam.getCalibration())
+        self.Board = GoBoard(self.input_stream.getCalibration())
         self.Plot = Plot()
         self.Game = Game()
         self.msg = ''
         self.Katrain = None
+        self.input_is_frozen = False
     
         self.PatchClassifier = CircleClassifier(self.Board, 19)
 
-    def startNewGame(self):
+    def freeze(self) -> None:
+        self.input_is_frozen = True if not self.input_is_frozen else False
+
+    def startNewGame(self, *args) -> None:
+        self.img_cam = self.input_stream.read()
         if not self.Board.hasEstimate:
             self.Board.calib(self.img_cam)
-            
+        
         if self.Board.hasEstimate:
             self.Game.startNewGame(19)
             self.img_cropped = self.Board.extract(self.img_cam)
             val = self.PatchClassifier.predict(self.img_cropped)
             self.Game.updateState(val)
+
 
     def loop10x(self) -> None:
         for _ in range(10):
@@ -48,7 +56,7 @@ class PyGO(Timing):
 
     def loopDetect10x(self) -> None:
         for _ in range(10):
-            img_cam = self.webcam.read()[1]
+            img_cam = self.input_stream.read()[1]
         self.Board.calib(img_cam)
         for _ in range(10):
             self.run_once()
@@ -59,12 +67,18 @@ class PyGO(Timing):
             self.run_once()
     
     def run_once(self) -> None:
-            self.img_cam = self.webcam.read()[1]
+            if not self.input_is_frozen:
+                self.img_cam = self.input_stream.read()
             self.msg = ''
 
             if self.Board.hasEstimate:
-                self.img_cropped = self.Board.extract(self.img_cam)
+                self.img_cropped =  self.Board.extract(self.img_cam)
                 if self.Motiondetection.hasNoMotion(self.img_cropped) and not self.Game.isPaused():
+                    i = [x for x in os.listdir('.') if 'out' in x]
+                    i = len(i)
+                    fn = 'out{}.png'.format(i+1)
+                    cv2.imwrite(fn, self.img_cropped)
+                    
                     if self.PatchClassifier.hasWeights:
                         #if self.BoardMotionDetecion.checkIfBoardWasMoved(self.img_cropped):
                         #    logging.debug('Realign Board')
@@ -78,7 +92,6 @@ class PyGO(Timing):
                                                         self.Board.grd_overlay, 
                                                         self.Board.grid_img)
 
-                        logging.debug(val.reshape(19,19))
 
                         self.msg = self.Game.updateState(val)
                         if self.Katrain is not None:

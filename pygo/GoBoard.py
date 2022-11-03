@@ -12,9 +12,9 @@ import matplotlib.pyplot as plt
 import math
 from pygo.utils.line import intersect, is_line_within_board, warp_lines
 from pygo.utils.misc import get_ref_go_board_coords, find_src_pt, mask_board, get_grid_lines
-from pygo.utils.image import toByteImage, toCMYKImage, toGrayImage
+from pygo.utils.image import toByteImage, toCMYKImage, toGrayImage, toYUVImage
 from pygo.utils.plot import Plot
-from pygo.Signals import OnBoardDetected, OnBoardGridSizeKnown, Signals
+from pygo.Signals import *
 from pycpd import AffineRegistration, RigidRegistration, DeformableRegistration
 from functools import partial
 from shapely.geometry import Polygon, LineString, Point
@@ -39,13 +39,13 @@ class NoVanishingPointsDetectedException(Exception):
     pass
 
 class GoBoard(DebugInfoProvider, Timing):
-    def __init__(self, CameraCalib):
+    def __init__(self, camera_calibration: CameraCalib):
         DebugInfoProvider.__init__(self)
         Timing.__init__(self)
-
+        self.camera_calibration = camera_calibration
         self.H = np.eye(3)
-        self.vp = VPDetection(focal_length=CameraCalib.focal, 
-                              principal_point=CameraCalib.center, 
+        self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
+                              principal_point=self.camera_calibration.get_center(), 
                               length_thresh=50,
                               line_search_alg=LS_ALG.LSD)
         self.current_unwarped = None
@@ -59,7 +59,29 @@ class GoBoard(DebugInfoProvider, Timing):
         for key in debugkeys:
             self.available_debug_info[key.name] = False
 
+        Signals.subscribe(OnCameraGeometryChanged, self.cameraGeometryHasChanged)
+        Signals.subscribe(OnInputChanged, self.reset)
 
+    def __calib(self, *args) -> None:
+        self.calib()
+
+    def cameraGeometryHasChanged(self, *args) -> None:
+        self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
+                              principal_point=self.camera_calibration.get_center(), 
+                              length_thresh=50,
+                              line_search_alg=LS_ALG.LSD)
+
+    def reset(self, *args) -> None:
+        self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
+                              principal_point=self.camera_calibration.get_center(), 
+                              length_thresh=50,
+                              line_search_alg=LS_ALG.LSD)
+
+        self.grid = None
+        self.go_board_shifted = None
+        self.hasEstimate = False
+        self.grid_lines = None
+        self.H = np.eye(3)
 
     def crop(self, pts : Corners, img : Image) -> Mask:
         ## (1) Crop the bounding rect
@@ -269,14 +291,28 @@ class GoBoard(DebugInfoProvider, Timing):
         return corners
 
     def get_corners_overlay(self, img: B3CImage) -> NDArray:
-        img_gray = toGrayImage(img)
-        img_gray = cv2.equalizeHist(img_gray)
+        #img_gray = toGrayImage(img)
+        img_gray = toYUVImage(img)[:,:,0]
+        img_bw = cv2.adaptiveThreshold(img_gray,
+                                        255,
+                                        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
+                                        cv2.THRESH_BINARY_INV,
+                                        5,
+                                        15)
+        #eq_img_gray = cv2.equalizeHist(img_gray)
+        #cv2.imshow('eq', eq_img_gray)
+        #clahe = cv2.createCLAHE(40,(64,64))
+        #img_gray = clahe.apply(img_gray)
+        #cv2.imshow('clahe', img_gray)
         #self.tic('get_vp')
         try:
             vp1, vp2 = self.get_vp(img_gray)
         except NoVanishingPointsDetectedException:
             return img
-        img_bw = cv2.inRange(img_gray, 0, 45)
+        #img_bw = cv2.inRange(img_gray, 0, 90)
+        #cv2.imshow('bw', img_bw)
+        #cv2.waitKey(1)
+        
         #self.toc('get_vp')
         #print(vp1, vp2)
         #vpd = self.vp.create_debug_VP_image()
@@ -316,6 +352,7 @@ class GoBoard(DebugInfoProvider, Timing):
         if len(img.shape) == 3:
             h,w,c = img.shape
             #instead of the grayscale variant extract the red part
+            img_bw = toYUVImage(img)[:,:,0]
             img = toCMYKImage(img)[:,:,3]
             #plt.imshow(img)
             #plt.show()
@@ -327,10 +364,13 @@ class GoBoard(DebugInfoProvider, Timing):
         except NoVanishingPointsDetectedException:
             return False
 
-        thresh, img_bw = cv2.threshold(img, \
-                                    0, \
-                                    255, \
-                                    cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        #thresh, img_bw = cv2.threshold(img, \
+        #                            0, \
+        #                            255, \
+        #                            cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        img_bw = cv2.adaptiveThreshold(img_bw, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 5,15)
+
         #cv2.imshow('bw',img_bw)
         #cv2.waitKey(1)
         # clean img_bw
@@ -604,7 +644,12 @@ class GoBoard(DebugInfoProvider, Timing):
 
         img_c_trim, (x,y) = mask_board(img_w, self.grid, self.border_size)
         self.go_board_shifted = self.grid - np.array([x,y])
-        
+        #wide_limits = (self.img_limits[0]+50, self.img_limits[1]+50)
+        #wide_h = np.linalg.inv(self.H)
+        #wide_h[0,2] += 25
+        #wide_h[1,2] += 25
+        #img_w = cv2.warpPerspective(img, wide_h, wide_limits)
+        #img_c_wide, _ = mask_board(img_w, self.grid, wide_limits[0])
         #cv2.imshow('PyGO', img_c_trim) 
         #cv2.waitKey(100)
 
@@ -617,7 +662,7 @@ class GoBoard(DebugInfoProvider, Timing):
         self.ct2 = self.go_board_shifted + np.array([0, cell_h/2])
         self.cb2 = self.go_board_shifted - np.array([0, cell_h/2])
 
-        return img_c_trim
+        return img_c_trim#, img_c_wide
 
     def extractOnPoints(self, img):
         img = self.extract(img)

@@ -19,6 +19,11 @@ class Signals(ABC):
                 sub(args)
 
 
+class DetectBoard(Signals):
+    pass
+
+class GameNew(Signals):
+    pass
 
 class OnBoardDetected(Signals):
     pass
@@ -39,4 +44,10 @@ class GameTreeForward(Signals):
     pass
 
 class GamePauseResume(Signals):
+    pass
+
+class OnCameraGeometryChanged(Signals):
+    pass
+
+class OnInputChanged(Signals):
     pass

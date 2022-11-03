@@ -10,7 +10,7 @@ from sklearn.metrics import classification_report, f1_score
 
 from feature import get_feat_vec
 from GoNet import GoNet
-from pygo_utils import load_training_data
+from pygo.utils.data import load_training_data
 
 import torch as th
 import torch.nn.functional as F

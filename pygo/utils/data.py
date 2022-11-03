@@ -2,7 +2,7 @@ import os
 import cv2
 import numpy as np
 import pdb
-from pygo.utils.image import toColorImage
+from pygo.utils.image import toCMYKImage, toColorImage
 
 def load_training_data_old(classes):
     x = []
@@ -48,6 +48,8 @@ def load_training_data2():
     for folder in os.listdir('data'):
             for file in os.listdir(os.path.join('data', folder)):
                 img = cv2.imread(os.path.join('data', folder, file))
+                img = toCMYKImage(img)[:,:,3]
+                img = toColorImage(img)
                 data.append(img)
                 label.append(int(folder))
     return data, label

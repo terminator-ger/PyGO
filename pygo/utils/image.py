@@ -121,3 +121,13 @@ def toCMYKImage(image):
     # Combine 4 channels into single image and re-scale back up to uint8
     CMYK = (np.dstack((C,M,Y,K)) * 255).astype(np.uint8)
     return CMYK
+
+def toYUVImage(image):
+    return cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
+
+def cmykToBGR(image, cmyk_scale=255, rgb_scale=255):
+    c,m,y,k = cv2.split(image)
+    r = np.uint8(rgb_scale * (1.0 - c / float(cmyk_scale)) * (1.0 - k / float(cmyk_scale)))
+    g = np.uint8(rgb_scale * (1.0 - m / float(cmyk_scale)) * (1.0 - k / float(cmyk_scale)))
+    b = np.uint8(rgb_scale * (1.0 - y / float(cmyk_scale)) * (1.0 - k / float(cmyk_scale)))
+    return cv2.merge([b,g,r])

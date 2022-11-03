@@ -233,3 +233,14 @@ def merge_lines_mean(l1:Line, l2:Line) -> Line:
     elif max_dist_idx == 1:
         return np.array([(l1[0]+l2[2])/2, (l1[1]+l2[3])/2, 
                          (l1[2]+l2[0])/2, (l1[3]+l2[1])/2])
+
+
+def point_in_circle(points, circle):
+    if len(points.shape) == 1:
+        #only one point
+        points = points.reshape(-1,2)
+    if len(circle.shape) == 1:
+        circle = circle.reshape(-1,3)
+
+    dist =  (points[:,0] - circle[:,0])**2 + (points[:,1] - circle[:,1])** 2 
+    return np.less(dist, circle[:,2]**2)

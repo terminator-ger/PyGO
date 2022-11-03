@@ -18,7 +18,7 @@ from tkinter import filedialog as fd
 import tkinter.scrolledtext as scrolledtext
 
 
-from pygo.Signals import GamePauseResume, GameTreeBack, GameTreeForward, Signals
+from pygo.Signals import DetectBoard, GamePauseResume, GameTreeBack, GameTreeForward, Signals
 from pygo.core import PyGO
 from pygo.classifier import GoClassifier, HaarClassifier, IlluminanceClassifier, CircleClassifier
 from pygo.Motiondetection import MotionDetectionMOG2
@@ -30,7 +30,7 @@ from pygo.utils.debug import DebugInfo
 from pygo.Game import Game, GameState
 from pygo.Ensemble import SoftVoting, MajorityVoting
 from pygo.Webcam import Webcam
-from pygo.Signals import Signals, OnSettingsChanged
+from pygo.Signals import *
 
 class PyGOTk:
     #types
@@ -65,6 +65,7 @@ class PyGOTk:
 
         filemenu = tk.Menu(self.menubar, tearoff=0)
         filemenu.add_command(label="Save", command=self.onFileSave)
+        filemenu.add_command(label="Select Input", command=self.onInputChange)
         filemenu.add_command(label="Settings", command=self.onSettings)
         filemenu.add_command(label="Exit", command=self.onFileExit)
 
@@ -112,7 +113,6 @@ class PyGOTk:
         debugmenu.add_cascade(label='Views', menu=debugviewsmenu)
         self.menubar.add_cascade(label="Debug", menu=debugmenu)
 
-
         self.tkimage = self.__np2tk(self.pygo.img_cam)
         self.go_board_display = tk.Label(image=self.tkimage)
         self.go_board_display.grid(column=0, row=0, sticky=tk.W, padx=5, pady=5)
@@ -142,6 +142,27 @@ class PyGOTk:
                          'MotionDetectionFactor': tk.DoubleVar(value=0.9),
         }
 
+
+        self.root.bind("<space>", self.freeze)
+        self.go_board_display.bind("<ButtonPress-1>", self.motion)
+
+
+    def motion(self, event):
+        if self.pygo.Game.GS == GameState.RUNNING:
+            x, y = event.x, event.y
+            print('{}, {}'.format(x, y))
+            x_grid = np.repeat(x, 19*19)
+            y_grid = np.repeat(y, 19*19)
+            ref = np.stack((x_grid, y_grid)).T
+            dist = np.mean((ref - self.grid)**2, axis=1)
+            coord = np.argmin(dist)
+            x_board, y_board = np.unravel_index(coord, (19,19))
+            self.pygo.Game.setManual(x_board, y_board)
+    
+
+    def freeze(self, event=None) -> None:
+        self.pygo.freeze()
+
     def GamePause(self) -> None:
         Signals.emit(GamePauseResume)
    
@@ -165,6 +186,64 @@ class PyGOTk:
 
     def setLogLevelWarn(self) -> None:
         logging.getLogger().setLevel(logging.WARN)
+
+    def onVideoFileOpen(self) -> None:
+        self.video_str = fd.askopenfilename()
+
+        if self.video_str:
+            self.pygo.input_stream.set_input_file_stream(self.video_str)
+            self.onGameNew()
+
+    def onInputChange(self) -> None:
+        self.input_window = tk.Toplevel(self.root)
+        self.input_window.title('Select input')
+        self.input_window.grid()
+        self.video_str = tk.StringVar()
+
+        packlist = []
+        self.v = tk.IntVar()
+
+        self.v.set(0)  # initializing the choice, i.e. Python
+        video_ports = self.pygo.input_stream.getWorkingPorts()
+        video_ports.append('Select Video')
+
+        self.input_devices = []
+        for i,port in enumerate(video_ports):
+            if port != "Select Video": 
+                self.input_devices.append(('/dev/video{}'.format(port), i))
+            else:
+                self.input_devices.append((port, i))
+
+        Tbox = tk.Text(self.input_window, height=1, width=30)
+        Tbox.insert(tk.END,'Select Video')
+        btn = tk.Button(self.input_window, 
+                        command=self.onVideoFileOpen)
+        
+
+        packlist.append(Tbox)
+        packlist.append(btn)
+
+
+        tk.Label(self.input_window, 
+                text="Choose Input",
+                justify = tk.LEFT,
+                padx = 20).pack()
+
+        for txt, val in self.input_devices:
+            tk.Radiobutton(self.input_window, 
+                        text=txt,
+                        padx = 20, 
+                        variable=self.v, 
+                        command=self.onInputDeviceChanged if txt != 'Select Video' else self.onVideoFileOpen,
+                        value=val).pack(anchor=tk.W)
+
+        [p.pack() for p in packlist]
+
+
+    def onInputDeviceChanged(self):
+        dev, i = self.input_devices[self.v.get()]
+        self.pygo.input_stream.set_input_file_stream(dev)
+
 
     def onSettings(self):
         self.settings_window = tk.Toplevel(self.root)
@@ -191,19 +270,19 @@ class PyGOTk:
                                     text="Low", 
                                     variable=self.settings['MotionDetectionFactor'],
                                     indicatoron=False, 
-                                    value=0.9, 
+                                    value=0.2, 
                                     width=8)
         med_button = tk.Radiobutton(switch_frame, 
                                     text="Medium", 
                                     variable=self.settings['MotionDetectionFactor'],
                                     indicatoron=False, 
-                                    value=0.92, 
+                                    value=0.4, 
                                     width=8)
         high_button = tk.Radiobutton(switch_frame, 
                                     text="High", 
                                     variable=self.settings['MotionDetectionFactor'],
                                     indicatoron=False, 
-                                    value=0.95, 
+                                    value=0.6, 
                                     width=8)
         low_button.pack(side="left")
         med_button.pack(side="left")
@@ -230,7 +309,7 @@ class PyGOTk:
             self.root.destroy()
 
     def quit(self):
-        self.pygo.webcam.release()
+        self.pygo.input_stream.release()
         self.root.quit()
         self.root.destroy()
 
@@ -260,6 +339,7 @@ class PyGOTk:
         self.move_log.insert('end', '{}\n'.format(cur_time))
         self.move_log.insert('end', '==========\n')
         self.pygo.startNewGame()
+        self.updateGrid()
 
     def run(self) -> None:
         self.root.after(1, self.update)

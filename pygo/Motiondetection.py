@@ -14,6 +14,7 @@ import pdb
 from enum import Enum, auto
 
 import logging
+import mediapipe as mp
 
 class debugkeys(Enum):
     Motion = auto()
@@ -131,11 +132,13 @@ class MotionDetectionMOG2(DebugInfoProvider):
         self.imgLast = img
         self.hist = 0
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(3,3))
-        self.fgbg = cv2.createBackgroundSubtractorMOG2()
+        self.fgbg = cv2.createBackgroundSubtractorMOG2(240, detectShadows=True)
         self.motion_active = False
         self.settings = {
-            'MotionDetectionFactor' : 0.9,
+            'MotionDetectionFactor' : -1,
         }
+        for key in debugkeys:
+            self.available_debug_info[key.name] = False
         Signals.subscribe(OnSettingsChanged, self.settings_updated)
 
     def settings_updated(self, args):
@@ -148,6 +151,9 @@ class MotionDetectionMOG2(DebugInfoProvider):
             img = cv2.resize(img, None, fx=0.25,fy=0.25)
         fgmask = self.fgbg.apply(img, self.settings['MotionDetectionFactor'])
         fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel)
+
+        self.showDebug(debugkeys.Motion, fgmask)
+
         if not self.motion_active and fgmask.sum() > 10:
             # hand onto of board
             self.motion_active = True
@@ -155,10 +161,10 @@ class MotionDetectionMOG2(DebugInfoProvider):
             return False
 
         if self.motion_active and fgmask.sum() <= 0:
-            if self.hist < 1:
-                self.hist += 1
-                return False
-            else:
+            #if self.hist < 1:
+            #    self.hist += 1
+            #    return False
+            #else:
                 # hand out of board
                 self.motion_active = False
                 self.hist = 0
@@ -212,6 +218,61 @@ class BoardShakeDetectionMOG2(DebugInfoProvider):
             #Signals.emit(OnBoardMoved)
 
 
+class MotionDetectionHandTracker(DebugInfoProvider):
+    def __init__(self, img:B3CImage, resize:bool=True) -> None:
+        DebugInfoProvider.__init__(self)
+        
+        self.mp_drawing = mp.solutions.drawing_utils
+        self.mp_drawing_styles = mp.solutions.drawing_styles
+        self.mp_hands = mp.solutions.hands
+
+
+
+        self.resize=resize
+        if self.resize:
+            img = cv2.resize(img, None, fx=0.25,fy=0.25)
+        self.imgLast = img
+        self.motion_active = False
+        for key in debugkeys:
+            self.available_debug_info[key.name] = False
+
+    def hasNoMotion(self, img: B3CImage) -> bool:
+        if self.resize:
+            img = cv2.resize(img, None, fx=0.25,fy=0.25)
+        annotated_image = img.copy()
+
+        with self.mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=2,
+            min_detection_confidence=0.4,
+            min_tracking_confidence=0.4) as hands:
+            # Convert the BGR image to RGB before processing.
+            results = hands.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
+            if results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    self.mp_drawing.draw_landmarks(
+                        annotated_image,
+                        hand_landmarks,
+                        self.mp_hands.HAND_CONNECTIONS,
+                        self.mp_drawing_styles.get_default_hand_landmarks_style(),
+                        self.mp_drawing_styles.get_default_hand_connections_style())
+        cv2.imshow('hand', annotated_image)
+        cv2.waitKey(1)
+        self.showDebug(debugkeys.BoardMotion, annotated_image)
+
+        if not self.motion_active and results.multi_hand_landmarks is not None:
+            # hand onto of board
+            self.motion_active = True
+            return False
+
+        if self.motion_active and results.multi_hand_landmarks is None:
+            self.motion_active = False
+            self.hist = 0
+            logging.debug('No Board shift detected')
+            return True
+
+        return False
 
 class MotionDetectionBGSubCNT(DebugInfoProvider):
     '''
