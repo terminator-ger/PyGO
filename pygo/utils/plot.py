@@ -17,7 +17,6 @@ class Plot:
         self.radius = int(np.mean([dx,dy])/2)
 
 
-
     def plot_grid(self, img, board):
         board = board.reshape(19,19,2)
         for i in range(19):
@@ -57,12 +56,10 @@ class Plot:
         val = val.reshape(-1)
         coords = coords.reshape(-1,2)
         for v, c in zip(val, coords): 
-            #if v > 0.6:
             if v == 0:
                 #white
                 color = (255, 255, 255)
                 thickness=-1
-            #elif v < 0.4:
             elif v == 1:
                 #black
                 color = (0,0,0)
@@ -76,6 +73,14 @@ class Plot:
                             radius=self.radius, 
                             color=color, 
                             thickness=thickness)
+            if v != 2:
+                #draw additional gray border ontop
+                img = cv2.circle(img, 
+                            (int(c[0]),int(c[1])), 
+                            radius=self.radius, 
+                            color=(100,100,100), 
+                            thickness=1)
+
         return img
 
     def plot_virt_grid(self, val, coords, img_ipt):

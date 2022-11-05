@@ -169,7 +169,7 @@ class PyGOTk:
 
 
     def on_closing(self):
-        if self.pygo.Game.sgf is not None and len(self.pygo.Game.sgf.get_root()) > 0:
+        if self.pygo.Game.game_tree is not None and len(self.pygo.Game.game_tree.get_root()) > 0:
             if tk.messagebox.askokcancel("Quit", "Do you want to quit without saving?"):
                 self.QUIT = True
                 self.root.destroy()
