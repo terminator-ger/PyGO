@@ -5,4 +5,4 @@
 *.png
 **/__pycache__/
 build/*
-PYGO.egg-info
+PyGO.egg-info/*
