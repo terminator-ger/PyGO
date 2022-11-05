@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Union
 
 def N2C(n: int) -> str:
     if n == 0:
@@ -17,9 +18,25 @@ def C2N(c: str) -> int:
         return 1
     elif c.upper() == 'E':
         return 2
+    elif c is None:
+        return 2
+
 
 class COLOR(Enum):
     WHITE = 0
     BLACK = 1
     NONE  = 2
 
+def CNOT(c: Union[str,int]) -> Union[str,int]:
+    if isinstance(c, int):
+        return CNOT_INT(c)
+    else:
+        return N2C(CNOT_INT(c))
+
+def CNOT_INT(n: int):
+    if n == 0:
+        return 1
+    elif n == 1:
+        return 0
+    else:
+        return 2

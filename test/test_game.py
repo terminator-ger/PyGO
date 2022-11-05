@@ -1,6 +1,7 @@
 import unittest
 
 from pygo.Game import Game
+from pygo.Signals import GameTreeBack, GameTreeForward, Signals
 from pygo.utils.color import  N2C, C2N, COLOR
 import pdb
 
@@ -8,6 +9,58 @@ from pudb import set_trace
 
 
 class GameTests(unittest.TestCase):
+    def testMultiCaptureWithoutDetection(self):
+        self.game = Game()
+        self.game.startNewGame()
+        self.game._test_set('B',(0,1))
+        self.game._test_set('W',(0,0))
+        self.game._test_set('B',(1,1))
+        self.game._test_set('W',(1,0))
+        nextState = self.game.state.copy()
+        nextState[2,0] = C2N('B')
+        nextState[0,0] = C2N('E')
+        updatedState = self.game._simple_move_validity_check(nextState)
+
+        self.assertEqual(updatedState[0,0], COLOR.NONE.value)
+        self.assertEqual(updatedState[1,0], COLOR.NONE.value)
+
+
+
+    def testUndoRedo(self):
+        self.game = Game()
+        self.game.startNewGame()
+        self.game._test_set('B',(3,3))
+        self.game._test_set('W',(15,15))
+        self.game._test_set('B',(3,4))
+        self.game._test_set('W',(3,15))
+
+        self.game._Game__game_tree_back()
+        self.assertEqual(self.game.last_color, COLOR.BLACK.value)
+        self.assertEqual(self.game.last_x, 3)
+        self.assertEqual(self.game.last_y, 4)
+
+        self.game._Game__game_tree_back()
+        self.assertEqual(self.game.last_color, COLOR.WHITE.value)
+        self.assertEqual(self.game.last_x, 15)
+        self.assertEqual(self.game.last_y, 15)
+ 
+        self.game._Game__game_tree_forward()
+        self.assertEqual(self.game.last_color, COLOR.BLACK.value)
+        self.assertEqual(self.game.last_x, 3)
+        self.assertEqual(self.game.last_y, 4)
+
+        self.game._Game__game_tree_back()
+        self.assertEqual(self.game.last_color, COLOR.WHITE.value)
+        self.assertEqual(self.game.last_x, 15)
+        self.assertEqual(self.game.last_y, 15)
+ 
+        self.game._Game__game_tree_back()
+        self.assertEqual(self.game.last_color, COLOR.BLACK.value)
+        self.assertEqual(self.game.last_x, 3)
+        self.assertEqual(self.game.last_y, 3)
+
+
+
         
     def testCountLibertiesCorner(self):
         self.game = Game()
@@ -45,7 +98,7 @@ class GameTests(unittest.TestCase):
         nextState[1,0] = C2N('B')
         nextState[0,0] = C2N('E')
 
-        updatedState = self.game._check_move_validity(nextState)
+        updatedState = self.game._simple_move_validity_check(nextState)
 
         self.assertEqual(updatedState[0,0], COLOR.NONE.value)
         self.assertEqual(updatedState[1,0], COLOR.BLACK.value)
@@ -65,7 +118,7 @@ class GameTests(unittest.TestCase):
         nextState[3,4] = C2N('E')
         nextState[3,5] = C2N('B')
 
-        updatedState = self.game._check_move_validity(nextState)
+        updatedState = self.game._simple_move_validity_check(nextState)
 
         self.assertEqual(updatedState[3,4], COLOR.NONE.value)
         self.assertEqual(updatedState[3,5], COLOR.BLACK.value)
@@ -85,7 +138,7 @@ class GameTests(unittest.TestCase):
         #nextState[3,4] = C2N('E')
         nextState[3,5] = C2N('B')
 
-        updatedState = self.game._check_move_validity(nextState)
+        updatedState = self.game._simple_move_validity_check(nextState)
 
         self.assertEqual(updatedState[3,4], COLOR.NONE.value)
         self.assertEqual(updatedState[3,5], COLOR.BLACK.value)
@@ -105,7 +158,7 @@ class GameTests(unittest.TestCase):
         nextState[3,4] = C2N('W')
         nextState[3,5] = C2N('B')
 
-        updatedState = self.game._check_move_validity(nextState)
+        updatedState = self.game._simple_move_validity_check(nextState)
 
         self.assertEqual(updatedState[3,4], COLOR.NONE.value)
         self.assertEqual(updatedState[3,5], COLOR.BLACK.value)
@@ -124,7 +177,7 @@ class GameTests(unittest.TestCase):
         nextState[4,5] = C2N('W')
         nextState[5,5] = C2N('B')
 
-        updatedState = self.game._check_move_validity(nextState)
+        updatedState = self.game._simple_move_validity_check(nextState)
 
         self.assertEqual(updatedState[4,5], COLOR.NONE.value)
         self.assertEqual(updatedState[5,5], COLOR.BLACK.value)
@@ -143,7 +196,7 @@ class GameTests(unittest.TestCase):
         nextState[4,5] = C2N('E')
         nextState[5,5] = C2N('B')
 
-        updatedState = self.game._check_move_validity(nextState)
+        updatedState = self.game._simple_move_validity_check(nextState)
 
         self.assertEqual(updatedState[4,5], COLOR.NONE.value)
         self.assertEqual(updatedState[5,5], COLOR.BLACK.value)
@@ -162,7 +215,7 @@ class GameTests(unittest.TestCase):
         nextState = self.game.state.copy()
         #nextState[3,4] = C2N('N')
         nextState[5,5] = C2N('B')
-        updatedState = self.game._check_move_validity(nextState)
+        updatedState = self.game._simple_move_validity_check(nextState)
 
         self.assertEqual(updatedState[4,5], COLOR.NONE.value)
         self.assertEqual(updatedState[5,5], COLOR.BLACK.value)
@@ -185,7 +238,7 @@ class GameTests(unittest.TestCase):
         nextState[1,0] = C2N('E')
         nextState[2,0] = C2N('E')
 
-        updatedState = self.game._check_move_validity(nextState)
+        updatedState = self.game._simple_move_validity_check(nextState)
 
         self.assertEqual(updatedState[0,0], COLOR.NONE.value)
         self.assertEqual(updatedState[1,0], COLOR.NONE.value)
@@ -199,27 +252,12 @@ class GameTests(unittest.TestCase):
         nextState = self.game.state.copy()
         nextState[1,0] = C2N('B')
 
-        updatedState = self.game._check_move_validity(nextState)
+        updatedState = self.game._simple_move_validity_check(nextState)
         
         self.assertEqual(updatedState[0,0], COLOR.NONE.value)
         self.assertEqual(updatedState[1,0], COLOR.BLACK.value)
 
 
-    def testMultiCaptureWithoutDetection(self):
-        self.game = Game()
-        self.game.startNewGame()
-        self.game._test_set('B',(0,1))
-        self.game._test_set('W',(0,0))
-        self.game._test_set('B',(1,1))
-        self.game._test_set('W',(1,0))
-        nextState = self.game.state.copy()
-        nextState[2,0] = C2N('B')
-        nextState[0,0] = C2N('E')
-
-        updatedState = self.game._check_move_validity(nextState)
-
-        self.assertEqual(updatedState[0,0], COLOR.NONE.value)
-        self.assertEqual(updatedState[1,0], COLOR.NONE.value)
 
 if __name__ == '__main__':
     unittest.main()

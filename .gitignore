@@ -4,3 +4,5 @@
 *.zip
 *.png
 **/__pycache__/
+build/*
+PyGO.egg-info/*
