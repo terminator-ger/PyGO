@@ -56,10 +56,9 @@ class PyGO:
                 if not self.Motiondetection.hasMotion(self.img_overlay):
                     if self.PatchClassifier.hasWeights:
                         val = self.PatchClassifier.predict(self.img_overlay)
-                        logging.debug(val.reshape(19,19))
-                        self.msg = self.Game.updateState(val)
-                        if self.Katrain is not None:
-                            self.Katrain.send(self.msg)
+                        self.Game.updateState(val)
+                        #if self.Katrain is not None:
+                            #self.Katrain.send(self.msg)
             else:
                 self.img_overlay = self.img_cam
             #self.update()
