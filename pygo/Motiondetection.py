@@ -2,11 +2,11 @@ from distutils.log import debug
 import numpy as np
 import cv2
 
-
+from pudb import set_trace
 from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
-from pygo.utils.image import toByteImage, toGrayImage
+from pygo.utils.image import toByteImage, toColorImage, toGrayImage
 from pygo.utils.typing import Image, B3CImage, Mask
-from pygo.Signals import OnBoardDetected, OnSettingsChanged, Signals, OnBoardMoved
+from pygo.Signals import *
 from skimage.metrics import structural_similarity
 import matplotlib.pyplot as plt
 import bgsubcnt
@@ -116,7 +116,6 @@ class MotionDetectionBorderMask(DebugInfoProvider):
         return True
 
 
-
 class MotionDetectionMOG2(DebugInfoProvider):
     '''
         Detects Motion between two frames and blocks the classification algorithm
@@ -132,14 +131,29 @@ class MotionDetectionMOG2(DebugInfoProvider):
         self.imgLast = img
         self.hist = 0
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(3,3))
-        self.fgbg = cv2.createBackgroundSubtractorMOG2(240, detectShadows=True)
+        self.fgbg = cv2.createBackgroundSubtractorMOG2(400, detectShadows=False)
         self.motion_active = False
         self.settings = {
-            'MotionDetectionFactor' : -1,
+            'MotionDetectionFactor' : 0.6,
         }
         for key in debugkeys:
             self.available_debug_info[key.name] = False
         Signals.subscribe(OnSettingsChanged, self.settings_updated)
+        Signals.subscribe(OnGridSizeUpdated, self.grid_size_updated)
+
+        self.stone_area = None
+        self.tresh = self.stone_area if self.stone_area is not None else 1
+        self.bs = 0
+
+    def grid_size_updated(self, args):
+        width = args[0]
+        height = args[1]
+        radius = min(width, height) / 2
+        scale = 0.25 if self.resize else 1.
+        area = (radius * scale)**2 * np.pi
+        self.stone_area = area
+        self.tresh = area
+        self.bs = int(min(width, height) * scale)
 
     def settings_updated(self, args):
         new_settings = args[0]
@@ -150,26 +164,36 @@ class MotionDetectionMOG2(DebugInfoProvider):
         if self.resize:
             img = cv2.resize(img, None, fx=0.25,fy=0.25)
         fgmask = self.fgbg.apply(img, self.settings['MotionDetectionFactor'])
-        fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel)
+        bmask = fgmask.copy()
+        bmask = cv2.morphologyEx(bmask, cv2.MORPH_OPEN, self.kernel)
+        bmask[self.bs:-self.bs, self.bs:-self.bs] = 0
+        fgmask[:self.bs] = 0
+        fgmask[:,:self.bs] = 0
+        fgmask[-self.bs:] = 0
+        fgmask[:,-self.bs:] = 0
 
-        self.showDebug(debugkeys.Motion, fgmask)
 
-        if not self.motion_active and fgmask.sum() > 10:
+        bmask_disp = cv2.resize(bmask, None, fx=4,fy=4)
+        mask_disp = cv2.resize(fgmask, None, fx=4,fy=4)
+        mm = np.dstack((bmask_disp, mask_disp, bmask_disp))
+        self.showDebug(debugkeys.Motion, mm)
+
+        val = fgmask > 0
+        val = val.sum()
+        bval = bmask > 0
+        bval = bval.sum()
+
+        if not self.motion_active and val > .8*self.tresh:
             # hand onto of board
             self.motion_active = True
             self.hist = 0
             return False
 
-        if self.motion_active and fgmask.sum() <= 0:
-            #if self.hist < 1:
-            #    self.hist += 1
-            #    return False
-            #else:
-                # hand out of board
-                self.motion_active = False
-                self.hist = 0
-                logging.debug('No Motion')
-                return True
+        if self.motion_active and bval <= 3:#2.2*self.tresh:
+            self.motion_active = False
+            self.hist = 0
+            logging.debug('No Motion')
+            return True
 
         return False
 
@@ -179,6 +203,8 @@ class MotionDetectionMOG2(DebugInfoProvider):
         fgmask = self.fgbg.apply(img)
         fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel)
         return fgmask
+
+
 
 class BoardShakeDetectionMOG2(DebugInfoProvider):
     '''

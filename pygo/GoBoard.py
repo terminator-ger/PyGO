@@ -53,7 +53,8 @@ class GoBoard(DebugInfoProvider, Timing):
         self.go_board_shifted = None
         self.hasEstimate = False
         self.grid_lines = None
-        self.border_size = 15
+        #self.border_size = 15
+        self.border_size = 30
         self.plot = Plot()
 
         for key in debugkeys:
@@ -395,8 +396,22 @@ class GoBoard(DebugInfoProvider, Timing):
         self.H = H 
         self.grid_lines, self.grid_img, self.grd_overlay = get_grid_lines(self.grid)
         self.hasEstimate=True
+        img_c_trim, (x,y) = mask_board(img, self.grid, self.border_size)
+        self.go_board_shifted = self.grid - np.array([x,y])
+        self.cell_w = np.mean(np.diff(self.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))
+        self.cell_h = np.mean(np.diff(self.go_board_shifted.reshape(19,19,2)[:,:,1], axis=1))
+        logging.info('Grid width {}'.format(self.cell_w))
+        logging.info('Grid height {}'.format(self.cell_h))
+
+        self.cl2 = self.go_board_shifted - np.array([self.cell_w/2, 0])
+        self.cr2 = self.go_board_shifted + np.array([self.cell_w/2, 0])
+        self.ct2 = self.go_board_shifted + np.array([0, self.cell_h/2])
+        self.cb2 = self.go_board_shifted - np.array([0, self.cell_h/2])
+
+
         logging.debug(self.H)
         logging.info("Calibration successful")
+        Signals.emit(OnGridSizeUpdated, self.cell_w, self.cell_h)
         Signals.emit(OnBoardDetected, self.extract(img) , corners, self.H)
         Signals.emit(OnBoardGridSizeKnown, self.go_board_shifted)
 
@@ -594,6 +609,7 @@ class GoBoard(DebugInfoProvider, Timing):
 
         self.H = H_refined 
         if self.check_patches_are_centered(img):
+            #determined spaces from grid spacing
             self.grid_lines, self.grid_img, self.grd_overlay = get_grid_lines(self.grid)
             self.hasEstimate=True
             logging.debug(self.H)
@@ -643,7 +659,7 @@ class GoBoard(DebugInfoProvider, Timing):
         #cv2.waitKey(100)
 
         img_c_trim, (x,y) = mask_board(img_w, self.grid, self.border_size)
-        self.go_board_shifted = self.grid - np.array([x,y])
+        #self.go_board_shifted = self.grid - np.array([x,y])
         #wide_limits = (self.img_limits[0]+50, self.img_limits[1]+50)
         #wide_h = np.linalg.inv(self.H)
         #wide_h[0,2] += 25
@@ -653,14 +669,6 @@ class GoBoard(DebugInfoProvider, Timing):
         #cv2.imshow('PyGO', img_c_trim) 
         #cv2.waitKey(100)
 
-        #determined spaces from grid spacing
-        cell_w = np.mean(np.diff(self.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))
-        cell_h = np.mean(np.diff(self.go_board_shifted.reshape(19,19,2)[:,:,1], axis=1))
-        
-        self.cl2 = self.go_board_shifted - np.array([cell_w/2, 0])
-        self.cr2 = self.go_board_shifted + np.array([cell_w/2, 0])
-        self.ct2 = self.go_board_shifted + np.array([0, cell_h/2])
-        self.cb2 = self.go_board_shifted - np.array([0, cell_h/2])
 
         return img_c_trim#, img_c_wide
 

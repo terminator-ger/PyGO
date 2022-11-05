@@ -18,7 +18,7 @@ from tkinter import filedialog as fd
 import tkinter.scrolledtext as scrolledtext
 
 
-from pygo.Signals import DetectBoard, GamePauseResume, GameTreeBack, GameTreeForward, Signals
+from pygo.Signals import *
 from pygo.core import PyGO
 from pygo.classifier import GoClassifier, HaarClassifier, IlluminanceClassifier, CircleClassifier
 from pygo.Motiondetection import MotionDetectionMOG2
@@ -139,22 +139,35 @@ class PyGOTk:
         self.QUIT = False
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.settings = {'AllowUndo' : tk.BooleanVar(value=False),
-                         'MotionDetectionFactor': tk.DoubleVar(value=0.9),
+                         'MotionDetectionFactor': tk.DoubleVar(value=0.6),
         }
 
 
         self.root.bind("<space>", self.freeze)
         self.go_board_display.bind("<ButtonPress-1>", self.motion)
 
+        Signals.subscribe(GameNewMove, self.newMove)
+
+    def newMove(self, args):
+        msg = args[0]
+        self.logMove(msg)
+
 
     def motion(self, event):
         if self.pygo.Game.GS == GameState.RUNNING:
             x, y = event.x, event.y
-            print('{}, {}'.format(x, y))
+
+            if self.viewVar.get() in [0,1]:
+                grid = self.grid.reshape(19*19,2)
+            elif self.viewVar.get() == 2:
+                grid = self.grd_virtual.reshape(19*19,2)
+            else:
+                raise RuntimeError("Unkown View Layer")
+
             x_grid = np.repeat(x, 19*19)
             y_grid = np.repeat(y, 19*19)
             ref = np.stack((x_grid, y_grid)).T
-            dist = np.mean((ref - self.grid)**2, axis=1)
+            dist = np.mean((ref - grid)**2, axis=1)
             coord = np.argmin(dist)
             x_board, y_board = np.unravel_index(coord, (19,19))
             self.pygo.Game.setManual(x_board, y_board)
@@ -291,6 +304,7 @@ class PyGOTk:
             item.pack()
 
         self.settings_window.protocol("WM_DELETE_WINDOW", self.on_settings_closing)
+        Signals.emit(OnSettingsChanged, self.settings)
 
     def on_settings_closing(self):
         logging.debug("Settings changed")
@@ -356,11 +370,6 @@ class PyGOTk:
             self.move_log.see('end')  # move to the end after adding new text
 
 
-        #if not self.QUIT:
-        #    self._next_job = self.root.after(1, self.loop)
-        #else:
-        #    self.quit()
-
 
     def __np2tk(self, img : Image) -> ImageTk.PhotoImage: 
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -369,6 +378,7 @@ class PyGOTk:
     def updateGrid(self) -> None:
         with self.lock_grid:
             self.grid = self.pygo.Board.go_board_shifted
+            self.grd_virtual = self.pygo.Board.grd_overlay
 
 
     def update(self) -> None:
@@ -407,13 +417,22 @@ class PyGOTk:
         self.go_board_display.image = self.tkimage
         self.root.after(1, self.update)
 
-
+'''
     def onMouse(self, event, x, y, flags, param):
+        pdb.set_trace()
         if event == cv2.EVENT_LBUTTONDOWN:
+            # adjust for different views (virtual) which has smaller borders
+            if self.viewVar.get() in [0,1]:
+                grid = self.grid
+            elif self.viewVar.get() == 2:
+                grid = self.grd_virtual
+            else:
+                raise RuntimeError("Unkown View Layer")
+
             x_grid = np.repeat(x, 19*19)
             y_grid = np.repeat(y, 19*19)
             ref = np.stack((x_grid, y_grid)).T
-            dist = np.mean((ref - self.grid)**2, axis=1)
+            dist = np.mean((ref - grid)**2, axis=1)
             coord = np.argmin(dist)
             x_board, y_board = np.unravel_index(coord, (19,19))
             self.pygo.Game.setManual(x_board, y_board)
@@ -422,3 +441,4 @@ class PyGOTk:
            # draw circle here (etc...)
 
 
+'''

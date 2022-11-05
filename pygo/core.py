@@ -11,6 +11,13 @@ from pygo.Game import Game
 from pygo.Webcam import Webcam
 from pygo.Signals import *
 
+logging.DEBUG2 = 5
+logging.addLevelName(logging.DEBUG2, "DEBUG2")
+logging.Logger.debug2 = lambda inst, msg, *args, **kwargs: inst.log(logging.DEBUG2, msg, *args, **kwargs)
+logging.debug2 = lambda msg, *args, **kwargs: logging.log(logging.DEBUG2, msg, *args, **kwargs)
+
+
+
 class PyGO(Timing):
     def __init__(self):
         Timing.__init__(self)
@@ -93,9 +100,9 @@ class PyGO(Timing):
                                                         self.Board.grid_img)
 
 
-                        self.msg = self.Game.updateState(val)
-                        if self.Katrain is not None:
-                            self.Katrain.send(self.msg)
+                        self.Game.updateState(val)
+                        #if self.Katrain is not None:
+                        #    self.Katrain.send(self.msg)
                 else:
                     #overlay old state during motion
                     self.img_overlay = self.Plot.plot_overlay(self.Game.state,

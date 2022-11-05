@@ -362,8 +362,31 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         gray = self.remove_lines(gray, edge, 'h')
         gray = self.remove_lines(gray, edge, 'v')
         gray = cv2.GaussianBlur(gray,(5,5),0)
+        #cv2.imshow('gray', gray)
         grid = toByteImage(sobel(gray))
         out = cv2.threshold(grid, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)[1]
+        # remove edges outside the boards zone which could interfere with the detection
+        bs = self.BOARD.border_size+3
+        cw = int(self.BOARD.cell_w/2)
+        ch = int(self.BOARD.cell_h/2)
+        h,w = img.shape
+        out[:, :(bs-cw)] = 0
+        out[:,(w-bs+cw):] = 0
+        out[:(bs-ch), :] = 0
+        out[(h-bs+ch):,:] = 0
+        #img_ = toColorImage(img.copy())
+        #tl = np.array([bs-ch, bs-cw], dtype=int)
+        #tr = np.array([w-bs+ch, bs-cw], dtype=int)
+        #bl = np.array([bs-ch, h-bs+cw], dtype=int)
+        #br = np.array([w-bs+ch, h-bs+cw], dtype=int)
+        #points = np.stack((tl,tr,br,bl))
+        #cv2.polylines(img_, [points], color=(0,255,0), isClosed=True, thickness=1)
+        #cv2.imshow('borders', img_)
+        #cv2.waitKey(1)
+
+        #cv2.imshow('out_', out)
+        ##cv2.imshow('edge', edge)
+        #cv2.waitKey(1)
         return out
 
 
@@ -408,9 +431,18 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
                                                 min_xdistance=minRadius,
                                                 min_ydistance=minRadius)
         circles = zip(cx,cy,radii)
+        circles = self.remove_small_circles(circles, minRadius)
         circles_clean = self.remove_circles_not_on_grid(circles, 
                                                     self.BOARD.go_board_shifted)
         return circles_clean
+
+    def remove_small_circles(self, circles, thresh):
+        circles_clean = []
+        for (cx,cy,radius) in circles:
+            if radius >= thresh:
+                circles_clean.append((cx,cy, radius))
+        return circles_clean
+
 
     def get_hidden_intersections(self, img: B1CImage):
         map = sobel(img)
@@ -473,6 +505,8 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         for coord in self.BOARD.go_board_shifted.astype(int):
             if hidden_corners[coord[1], coord[0]] == 0:
                 detections.append(coord)
+
+        detections = np.array(detections)
         return detections
 
     def _detect_circle_detection_on_gradient(self, img):
@@ -495,6 +529,8 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         for coord in self.BOARD.go_board_shifted.astype(int):
             if np.any(point_in_circle(coord, np.array(circles))):
                 detections.append(coord)
+
+        detections = np.array(detections)
         return detections
 
 
@@ -519,11 +555,12 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         font = cv2.FONT_HERSHEY_SIMPLEX
         fontScale = .7
         color = (255, 0, 0)
+        color_detect = (0, 255, 0)
         thickness = 2
         for coord in self.BOARD.go_board_shifted.astype(int):
-            isin_circle = np.all(np.equal(coord, detections_circle),axis=1).any()
-            isin_hidden = np.all(np.equal(coord, detections_hidden),axis=1).any()
-            isin_blobb  = np.all(np.equal(coord, detections_blobb),axis=1).any()
+            isin_circle = np.all(np.equal(coord, detections_circle),axis=1).any() if len(detections_circle) > 0 else False
+            isin_hidden = np.all(np.equal(coord, detections_hidden),axis=1).any() if len(detections_hidden) > 0 else False
+            isin_blobb  = np.all(np.equal(coord, detections_blobb),axis=1).any() if len(detections_blobb) > 0 else False
             detect_count = np.sum([isin_circle, isin_hidden, isin_blobb])
   
             cv2.putText(img=img_detect, 
@@ -531,7 +568,7 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
                         org=coord+np.array([-5,5]), 
                         fontFace=font,
                         fontScale=fontScale, 
-                        color=color, 
+                        color=color if detect_count <2 else color_detect, 
                         thickness=thickness, 
                         lineType=cv2.LINE_AA)
             if detect_count >= 2:
@@ -790,8 +827,10 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
                     on_grid = (self.BOARD.go_board_shifted[:,0] - i[0])**2 + (self.BOARD.go_board_shifted[:,1] - i[1])**2 < (i[2]/2)**2
                     mask = np.zeros_like(value)
                     if np.any(on_grid):
-                        coord = self.BOARD.go_board_shifted[np.argwhere(on_grid)]
-                        detections.append(np.squeeze(coord).astype(int))
+                        idx = np.argwhere(on_grid)
+                        for idx_ in idx:
+                            coord = self.BOARD.go_board_shifted[idx_]
+                            detections.append(np.squeeze(coord).astype(int))
 
                         cv2.circle(mask, (i[0], i[1]), int(i[2]/2), (255), -1)
 
@@ -812,6 +851,7 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
                                     self.cv_settings.thickness,
                                     self.cv_settings.lineType)
                             self.showDebug(debugkeys.Detected_Intensities, self.img_debug)
+        detections = np.array(detections)
         return val, detections
 
 
@@ -945,7 +985,6 @@ class HaarClassifier(Classifier):
         y_train = []
 
         data, label = load_training_data2()
-        pdb.set_trace()
         patches = [[],[],[],[],[]]
         for lbl, img in zip(label, data):
             patches[lbl].append(img)

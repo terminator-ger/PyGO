@@ -51,3 +51,9 @@ class OnCameraGeometryChanged(Signals):
 
 class OnInputChanged(Signals):
     pass
+
+class OnGridSizeUpdated(Signals):
+    pass
+
+class GameNewMove(Signals):
+    pass
