@@ -1,6 +1,7 @@
 from __future__ import division
 from distutils.log import debug
 from re import I
+from turtle import back
 
 from requests import patch
 import pdb
@@ -24,6 +25,9 @@ from sklearn.cluster import KMeans
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Tuple
+from skimage import (
+    data, restoration, util
+)
 from scipy.ndimage import label
 
 from skimage.transform import integral_image
@@ -374,19 +378,7 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         out[:,(w-bs+cw):] = 0
         out[:(bs-ch), :] = 0
         out[(h-bs+ch):,:] = 0
-        #img_ = toColorImage(img.copy())
-        #tl = np.array([bs-ch, bs-cw], dtype=int)
-        #tr = np.array([w-bs+ch, bs-cw], dtype=int)
-        #bl = np.array([bs-ch, h-bs+cw], dtype=int)
-        #br = np.array([w-bs+ch, h-bs+cw], dtype=int)
-        #points = np.stack((tl,tr,br,bl))
-        #cv2.polylines(img_, [points], color=(0,255,0), isClosed=True, thickness=1)
-        #cv2.imshow('borders', img_)
-        #cv2.waitKey(1)
 
-        #cv2.imshow('out_', out)
-        ##cv2.imshow('edge', edge)
-        #cv2.waitKey(1)
         return out
 
 
@@ -510,18 +502,35 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         return detections
 
     def _detect_circle_detection_on_gradient(self, img):
-        clahe = cv2.createCLAHE(clipLimit=2)
+        clahe = cv2.createCLAHE(clipLimit=5)
+        #img_copy=img.copy()
+        #img_copy = cv2.resize(img_copy, None, fx=.25, fy=.25)
+        #background = restoration.rolling_ball(util.invert(img_copy), radius=30)
+        #img_copy = cv2.resize(img_copy-background, None, fx=4, fy=4)
+        #cv2.imshow('rolling', img_copy)
+        #cv2.imshow('raw', img)
         img = toColorImage(clahe.apply(toGrayImage(img)))
+        #cv2.imshow('clahe', img)
+        #cv2.waitKey(1)
         cmyk = toCMYKImage(img)
         bin_img = self.binarize(cmyk[:,:,3])
+        #bin_img_inv= self.binarize(255-cmyk[:,:,3])
+        #cv2.imshow('inv', bin_img_inv)
         circles = self.detect_stones(bin_img)
-        
-        crcl = toColorImage(bin_img.copy())
-        for x,y,r in circles:
-            circy, circx = circle_perimeter(y, x, r,
-                                            shape=bin_img.shape)
-            crcl[circy, circx] = (20, 220, 20)
+        #circles_inv = self.detect_stones(bin_img_inv)
 
+        def plot_circles(image, circles): 
+            crcl = toColorImage(image)
+            for x,y,r in circles:
+                circy, circx = circle_perimeter(y, x, r,
+                                                shape=image.shape)
+                crcl[circy, circx] = (20, 220, 20)
+            return crcl
+
+        crcl = plot_circles(bin_img.copy(), circles)
+        #crcl2 = plot_circles(bin_img_inv.copy(), circles_inv)
+        #cv2.imshow('circ_inv', crcl2)
+        #cv2.waitKey(1)
 
         self.showDebug(debugkeys.BIN, bin_img)
         self.showDebug(debugkeys.CIRCLE, crcl)
@@ -629,69 +638,9 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         self.showDebug(debugkeys.Mask_Black, mask_b)
         self.showDebug(debugkeys.Mask_White, mask_w)
  
-        #self.toc('pred- prep')
-        #self.tic('pred- anal')
         val, det = self.__analyse(detected_circles, value)
-        #self.toc('pred- anal')
 
         return det
-        #return  val.astype(int)
-        img_c = img.copy()
-        hsv = toHSVImage(  img.copy())
-        yuv = toYUVImage(  img.copy())
-        cmyk = toCMYKImage(img.copy())
-        cmyk1, cmyk2, cmyk3, cmyk4 = cv2.split(cmyk)
-        hsv1, hsv2, hsv3 = cv2.split(hsv)
-
-        mm = np.zeros_like(hsv2, dtype=np.uint8)
-        kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3))
-        blur = cv2.GaussianBlur(yuv[:,:,2],(5,5),0)
-        ret3,mask = cv2.threshold(blur,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-        mask = cv2.erode(mask, kernel, iterations=3)
-        mask = cv2.dilate(mask, kernel, iterations=3)
-        i2 = img.copy()
-        i2[mask==0] = 0
-        mm[mask==255] = 255
-        white = hsv2
-        mask_white = self.create_mask_white(white)
-        mask_white = cv2.erode(mask_white, kernel, iterations=5)
-        mask_white = cv2.dilate(mask_white, kernel, iterations=5)
-        i2[mask_white==255] = 0
-        mm[mask_white==255] = 0 
-        cv2.imshow('img', img)
-        cv2.imshow('mask_white', mask_white)
-        cv2.imshow('mask_black', mask)
-
-        markers_black = self.segment_on_dt(img, mask)
-        markers_white = self.segment_on_dt(img, mask_white)
-
-
-        self.showDebug(debugkeys.Mask_White, markers_white)
-        self.showDebug(debugkeys.Mask_Black, markers_black)
-
-
-        detected_circles = []
-        for markers in [markers_black, markers_white]:
-            # remove borders
-            markers[markers==255] = 0
-            markers[markers>0] = 255
-            markers = 255-markers
-
-            keypoints = self.detector.detect(markers)
-            logging.debug('Keypoints found: {}'.format(len(keypoints)))
-
-            for kp in keypoints:
-                crl = np.array([kp.pt[0], kp.pt[1], kp.size])
-                detected_circles.append([crl])
-
-            if self.debugStatus(debugkeys.Detected_Intensities):
-                self.img_debug = cv2.drawKeypoints(self.img_debug, keypoints, np.array([]), (255,0,0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-
-        self.showDebug(debugkeys.Detected_Intensities , self.img_debug)
-
-        val = self.__analyse(detected_circles, value)
-        return val.astype(int)
-
 
     def _predict(self, img: B3CImage) -> GoBoardClassification:
         #self.tic('pred- prep')

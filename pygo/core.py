@@ -23,7 +23,7 @@ class PyGO(Timing):
         Timing.__init__(self)
         self.input_stream = Webcam()
 
-        self.img_cam = self.input_stream.read()[1]
+        self.img_cam = self.input_stream.read()
         self.img_overlay = self.img_cam
         self.img_cropped = self.img_cam
         self.img_virtual = self.img_cam
@@ -41,8 +41,9 @@ class PyGO(Timing):
         self.input_is_frozen = False
     
         self.PatchClassifier = CircleClassifier(self.Board, 19)
+        Signals.subscribe(GamePauseResume, self.freeze)
 
-    def freeze(self) -> None:
+    def freeze(self, *args) -> None:
         self.input_is_frozen = True if not self.input_is_frozen else False
 
     def startNewGame(self, *args) -> None:
@@ -63,7 +64,7 @@ class PyGO(Timing):
 
     def loopDetect10x(self) -> None:
         for _ in range(10):
-            img_cam = self.input_stream.read()[1]
+            img_cam = self.input_stream.read()
         self.Board.calib(img_cam)
         for _ in range(10):
             self.run_once()
@@ -76,7 +77,6 @@ class PyGO(Timing):
     def run_once(self) -> None:
             if not self.input_is_frozen:
                 self.img_cam = self.input_stream.read()
-            self.msg = ''
 
             if self.Board.hasEstimate:
                 self.img_cropped =  self.Board.extract(self.img_cam)
@@ -84,7 +84,7 @@ class PyGO(Timing):
                     i = [x for x in os.listdir('.') if 'out' in x]
                     i = len(i)
                     fn = 'out{}.png'.format(i+1)
-                    cv2.imwrite(fn, self.img_cropped)
+                    #cv2.imwrite(fn, self.img_cropped)
                     
                     if self.PatchClassifier.hasWeights:
                         #if self.BoardMotionDetecion.checkIfBoardWasMoved(self.img_cropped):

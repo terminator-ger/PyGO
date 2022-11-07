@@ -7,18 +7,30 @@ import cv2
 import pdb
 from typing import List
 
-def get_ref_go_board_coords(min, max):
+def get_ref_go_board_coords(min, max, border):
     # assume symmectric go board
     dpx = (max[0]-min[0]) / 19
     dpy = (max[1]-min[1]) / 19
     go_board = np.zeros((19, 19, 2))
-
     for i in range(19):
         for j in range(19):
             go_board[i, j, 0] = i * dpx 
             go_board[i, j, 1] = j * dpy 
+    
+    go_board += np.array([border, border])
+    return go_board.reshape(-1,2)
 
-    go_board += np.array(min)
+def get_ref_coords(shape, border):
+    h,w = shape
+    side = min(h,w)
+    dpx = (side-2*border) / 19
+    dpy = (side-2*border) / 19
+    go_board = np.zeros((19, 19, 2))
+    for i in range(19):
+        for j in range(19):
+            go_board[i, j, 0] = i * dpx 
+            go_board[i, j, 1] = j * dpy 
+    go_board += np.array([border, border])
     return go_board.reshape(-1,2)
 
 def get_grid_lines(grid):

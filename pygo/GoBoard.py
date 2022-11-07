@@ -11,7 +11,7 @@ from pygo.utils.homography import compute_homography_and_warp, compute_homograph
 import matplotlib.pyplot as plt
 import math
 from pygo.utils.line import intersect, is_line_within_board, warp_lines
-from pygo.utils.misc import get_ref_go_board_coords, find_src_pt, mask_board, get_grid_lines
+from pygo.utils.misc import *
 from pygo.utils.image import toByteImage, toCMYKImage, toGrayImage, toYUVImage
 from pygo.utils.plot import Plot
 from pygo.Signals import *
@@ -272,10 +272,6 @@ class GoBoard(DebugInfoProvider, Timing):
     def detect_board_corners(self, vp1: Point2D, vp2: Point2D, img_bw: B1CImage) -> NDArray:
         #img_bw = cv2.equalizeHist(img_bw)
         corners = self.get_corners(vp1, vp2, img_bw)
-        #pdb.set_trace()
-        #plt.imshow(img_bw)
-        #plt.scatter(corners[:,0], corners[:,1])
-        #plt.show()
 
         if corners is None:
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
@@ -300,31 +296,12 @@ class GoBoard(DebugInfoProvider, Timing):
                                         cv2.THRESH_BINARY_INV,
                                         5,
                                         15)
-        #eq_img_gray = cv2.equalizeHist(img_gray)
-        #cv2.imshow('eq', eq_img_gray)
-        #clahe = cv2.createCLAHE(40,(64,64))
-        #img_gray = clahe.apply(img_gray)
-        #cv2.imshow('clahe', img_gray)
-        #self.tic('get_vp')
+
         try:
             vp1, vp2 = self.get_vp(img_gray)
         except NoVanishingPointsDetectedException:
             return img
-        #img_bw = cv2.inRange(img_gray, 0, 90)
-        #cv2.imshow('bw', img_bw)
-        #cv2.waitKey(1)
-        
-        #self.toc('get_vp')
-        #print(vp1, vp2)
-        #vpd = self.vp.create_debug_VP_image()
-        #cv2.imshow('New', vpd)
-        #cv2.waitKey(1)
-        #thresh, img_bw = cv2.threshold(img_gray, \
-        #                            0, \
-        #                            255, \
-        #                            cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
-        #cv2.imshow('overlay', img_bw)
-        #cv2.waitKey(1)
+
         # assumption most lines in the image are from the go board -> vp give us the plane
         # the contour which belongs to those vp is the board
         corners = self.detect_board_corners(vp1, vp2, img_bw)
@@ -384,15 +361,20 @@ class GoBoard(DebugInfoProvider, Timing):
             logging.error("Could not detect Go-Board corners!")
             return
 
-        self.grid = get_ref_go_board_coords(np.min(corners, axis=0), 
-                                            np.max(corners, axis=0))
+        #self.grid = get_ref_go_board_coords(np.min(corners, axis=0), 
+        #                                    np.max(corners, axis=0),
+        #                                    self.border_size)
+        self.grid = get_ref_coords(img.shape, self.border_size)
+
         target_corners = np.vstack((self.grid[18], 
                                     self.grid[0], 
                                     self.grid[342],
                                     self.grid[360]))
+
         
         H, ret = cv2.findHomography(target_corners, corners)
         self.img_limits = (img.shape[1],img.shape[0])
+        
         self.H = H 
         self.grid_lines, self.grid_img, self.grd_overlay = get_grid_lines(self.grid)
         self.hasEstimate=True
@@ -414,6 +396,156 @@ class GoBoard(DebugInfoProvider, Timing):
         Signals.emit(OnGridSizeUpdated, self.cell_w, self.cell_h)
         Signals.emit(OnBoardDetected, self.extract(img) , corners, self.H)
         Signals.emit(OnBoardGridSizeKnown, self.go_board_shifted)
+
+
+
+    def check_patches_are_centered(self, img: Image) -> bool:
+        cropped = self.extract(img)
+        patches = self.imgToPatches(cropped)
+        if patches is None:
+            logging.warning('could not extract patches')
+            return False
+
+        lines_x = []
+        lines_y = []
+        for i, patch in enumerate(patches):
+            x,y = np.unravel_index(i, (19,19))
+            if  x in [0,18] or y in [0,18]:
+                #skip corners due to possible inclusion of board corners
+                continue
+            if x in [2,4,8,10,14,16] and y in [3,9,15]:
+                #exclude calib patches
+                continue
+            thresh, patch_bw = cv2.threshold(toByteImage(patch), \
+                                    0, \
+                                    255, \
+                                    cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+
+            lines_x.append(np.argmax(np.sum(patch_bw, 0)))
+            lines_y.append(np.argmax(np.sum(patch_bw, 1)))
+        
+        if np.std(lines_x) > 2.8 or np.std(lines_y) > 2.8:
+            logging.debug("std x: {}".format(np.std(lines_x)))
+            logging.debug("std y: {}".format(np.std(lines_y)))
+            return False
+        else:
+            return True
+ 
+    def extract(self, img):
+        self.current_unwarped = img
+        img_w = cv2.warpPerspective(img, np.linalg.inv(self.H), self.img_limits)
+
+        #cv2.imshow('PyGO', img_w) 
+        #cv2.waitKey(1)
+
+        img_c_trim, (x,y) = mask_board(img_w, self.grid, self.border_size)
+        #self.go_board_shifted = self.grid - np.array([x,y])
+        #wide_limits = (self.img_limits[0]+50, self.img_limits[1]+50)
+        #wide_h = np.linalg.inv(self.H)
+        #wide_h[0,2] += 25
+        #wide_h[1,2] += 25
+        #img_w = cv2.warpPerspective(img, wide_h, wide_limits)
+        #img_c_wide, _ = mask_board(img_w, self.grid, wide_limits[0])
+        #cv2.imshow('PyGO', img_c_trim) 
+        #cv2.waitKey(100)
+
+
+        return img_c_trim#, img_c_wide
+
+    def extractOnPoints(self, img):
+        img = self.extract(img)
+        '''
+            + = empty
+            B = Black
+            W = White
+            O = Ref points on board
+
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + B O W + + + B O W + + + B O W + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + B O W + + + B O W + + + B O W + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + B O W + + + B O W + + + B O W + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+            + + + + + + + + + + + + + + + + + + + 
+        '''
+        points_w = np.array([[ 4, 3],
+                             [ 4, 6],
+                             [ 4, 9],
+                             [ 4,12],
+                             [ 4,15],
+                             [10, 3],
+                             [10, 6],
+                             [10, 9],
+                             [10, 12],
+                             [10,15],
+                             [16, 3],
+                             [16, 6],
+                             [16, 9],
+                             [16,12],
+                             [16,15]])
+        points_b = np.array([[ 2 ,3],
+                             [ 2 ,6],
+                             [ 2 ,9],
+                             [ 2,12],
+                             [ 2,15],
+                             [ 8 ,3],
+                             [ 8 ,6],
+                             [ 8 ,9],
+                             [ 8,12],
+                             [ 8,15],
+                             [14 ,3],
+                             [14 ,6],
+                             [14 ,9],
+                             [14,12],
+                             [14,15]])
+
+        corners = [np.array([0,0]),
+                   np.array([0,18]),
+                   np.array([18,0]),
+                   np.array([18,18])]
+        idx_ = np.arange(1,18)
+        edges_t = [np.array([0,i]) for i in idx_]
+        edges_l = [np.array([i,0]) for i in idx_]
+        edges_r = [np.array([18,i]) for i in idx_]
+        edges_b = [np.array([i,18]) for i in idx_]
+        edges = edges_b + edges_l + edges_r + edges_t
+
+        idx_corner = [np.ravel_multi_index(arr, (19,19)) for arr in corners]
+        idx_edge   = [np.ravel_multi_index(arr, (19,19)) for arr in edges]
+
+
+        idx_w = np.ravel_multi_index(points_w.T, (19,19))
+        idx_b = np.ravel_multi_index(points_b.T, (19,19))
+        idx_n = np.arange(19*19)
+        idx_n = np.delete(idx_n, np.concatenate((idx_w, idx_b, idx_corner, idx_edge)))
+        patches = [[],[],[],[],[]]
+        p = self.imgToPatches(img)
+        for c, idx in enumerate([idx_w, idx_b, idx_n, idx_edge, idx_corner]):
+            patches[c].append(np.array(p)[idx])
+            #plt.imshow(np.vstack(np.array(p)[idx])/255)
+            #plt.show()
+        return patches
+
+
+
+
+
+
+
+
+''''
 
     def calib_old(self, img: Image) -> None:
         #img_c = img
@@ -555,7 +687,8 @@ class GoBoard(DebugInfoProvider, Timing):
         lines_raw_orig = cv2.perspectiveTransform(lines_cleaned[:,None,:], 
                                                     np.linalg.inv(H)).squeeze()
 
-        def visualize(iteration, error, X, Y, ax):
+
+    def visualize(iteration, error, X, Y, ax):
             #if iteration % 50 == 0:
                 plt.cla()
                 ax.scatter(X[:, 0],  X[:, 1], color='red', label='Target')
@@ -619,141 +752,5 @@ class GoBoard(DebugInfoProvider, Timing):
             self.H = np.eye(3)
             logging.info('Calibration failed! - ')
 
-    def check_patches_are_centered(self, img: Image) -> bool:
-        cropped = self.extract(img)
-        patches = self.imgToPatches(cropped)
-        if patches is None:
-            logging.warning('could not extract patches')
-            return False
 
-        lines_x = []
-        lines_y = []
-        for i, patch in enumerate(patches):
-            x,y = np.unravel_index(i, (19,19))
-            if  x in [0,18] or y in [0,18]:
-                #skip corners due to possible inclusion of board corners
-                continue
-            if x in [2,4,8,10,14,16] and y in [3,9,15]:
-                #exclude calib patches
-                continue
-            thresh, patch_bw = cv2.threshold(toByteImage(patch), \
-                                    0, \
-                                    255, \
-                                    cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-
-            lines_x.append(np.argmax(np.sum(patch_bw, 0)))
-            lines_y.append(np.argmax(np.sum(patch_bw, 1)))
-        
-        if np.std(lines_x) > 2.8 or np.std(lines_y) > 2.8:
-            logging.debug("std x: {}".format(np.std(lines_x)))
-            logging.debug("std y: {}".format(np.std(lines_y)))
-            return False
-        else:
-            return True
- 
-    def extract(self, img):
-        self.current_unwarped = img
-        img_w = cv2.warpPerspective(img, np.linalg.inv(self.H), self.img_limits)
-
-        #cv2.imshow('PyGO', img_w) 
-        #cv2.waitKey(100)
-
-        img_c_trim, (x,y) = mask_board(img_w, self.grid, self.border_size)
-        #self.go_board_shifted = self.grid - np.array([x,y])
-        #wide_limits = (self.img_limits[0]+50, self.img_limits[1]+50)
-        #wide_h = np.linalg.inv(self.H)
-        #wide_h[0,2] += 25
-        #wide_h[1,2] += 25
-        #img_w = cv2.warpPerspective(img, wide_h, wide_limits)
-        #img_c_wide, _ = mask_board(img_w, self.grid, wide_limits[0])
-        #cv2.imshow('PyGO', img_c_trim) 
-        #cv2.waitKey(100)
-
-
-        return img_c_trim#, img_c_wide
-
-    def extractOnPoints(self, img):
-        img = self.extract(img)
-        '''
-            + = empty
-            B = Black
-            W = White
-            O = Ref points on board
-
-            + + + + + + + + + + + + + + + + + + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + B O W + + + B O W + + + B O W + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + B O W + + + B O W + + + B O W + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + B O W + + + B O W + + + B O W + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + + + + + + + + + + + + + + + + + + 
-            + + + + + + + + + + + + + + + + + + + 
-        '''
-        points_w = np.array([[ 4, 3],
-                             [ 4, 6],
-                             [ 4, 9],
-                             [ 4,12],
-                             [ 4,15],
-                             [10, 3],
-                             [10, 6],
-                             [10, 9],
-                             [10, 12],
-                             [10,15],
-                             [16, 3],
-                             [16, 6],
-                             [16, 9],
-                             [16,12],
-                             [16,15]])
-        points_b = np.array([[ 2 ,3],
-                             [ 2 ,6],
-                             [ 2 ,9],
-                             [ 2,12],
-                             [ 2,15],
-                             [ 8 ,3],
-                             [ 8 ,6],
-                             [ 8 ,9],
-                             [ 8,12],
-                             [ 8,15],
-                             [14 ,3],
-                             [14 ,6],
-                             [14 ,9],
-                             [14,12],
-                             [14,15]])
-
-        corners = [np.array([0,0]),
-                   np.array([0,18]),
-                   np.array([18,0]),
-                   np.array([18,18])]
-        idx_ = np.arange(1,18)
-        edges_t = [np.array([0,i]) for i in idx_]
-        edges_l = [np.array([i,0]) for i in idx_]
-        edges_r = [np.array([18,i]) for i in idx_]
-        edges_b = [np.array([i,18]) for i in idx_]
-        edges = edges_b + edges_l + edges_r + edges_t
-
-        idx_corner = [np.ravel_multi_index(arr, (19,19)) for arr in corners]
-        idx_edge   = [np.ravel_multi_index(arr, (19,19)) for arr in edges]
-
-
-        idx_w = np.ravel_multi_index(points_w.T, (19,19))
-        idx_b = np.ravel_multi_index(points_b.T, (19,19))
-        idx_n = np.arange(19*19)
-        idx_n = np.delete(idx_n, np.concatenate((idx_w, idx_b, idx_corner, idx_edge)))
-        patches = [[],[],[],[],[]]
-        p = self.imgToPatches(img)
-        for c, idx in enumerate([idx_w, idx_b, idx_n, idx_edge, idx_corner]):
-            patches[c].append(np.array(p)[idx])
-            #plt.imshow(np.vstack(np.array(p)[idx])/255)
-            #plt.show()
-        return patches
+'''
