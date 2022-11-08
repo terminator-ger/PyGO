@@ -58,7 +58,9 @@ class Game(DebugInfoProvider, Timing):
         }
 
         Signals.subscribe(OnSettingsChanged, self.settings_updated)
-        Signals.subscribe(GamePauseResume, self.__toggle_pause_game)
+        Signals.subscribe(GameRun, self.__game_run)
+        Signals.subscribe(GamePause, self.__game_pause)
+
         Signals.subscribe(GameNew, self.__startNewGame)
         Signals.subscribe(GameTreeBack, self.__game_tree_back)
         Signals.subscribe(GameTreeForward, self.__game_tree_forward)
@@ -123,7 +125,7 @@ class Game(DebugInfoProvider, Timing):
         else:
             #upon init black starts
             # TODO: unless we have handicap
-            return 1
+            return 0
 
 
     def updateStateNoChecks(self, state) -> NetMove:
@@ -301,6 +303,13 @@ class Game(DebugInfoProvider, Timing):
             self.last_x = x
             self.last_y = y
 
+    def __game_pause(self, *args):
+        logging.info("Paused Game")
+        self.GS = GameState.PAUSED
+    
+    def __game_run(self, *args):
+        logging.info("Resume Game")
+        self.GS = GameState.RUNNING
 
     def __toggle_pause_game(self, *args):
         if self.GS == GameState.RUNNING:

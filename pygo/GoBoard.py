@@ -47,12 +47,13 @@ class GoBoard(DebugInfoProvider, Timing):
         self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
                               principal_point=self.camera_calibration.get_center(), 
                               length_thresh=50,
-                              line_search_alg=LS_ALG.LSD)
+                              line_search_alg=LS_ALG.LSD_WITH_MERGE)
         self.current_unwarped = None
         self.grid = None
         self.go_board_shifted = None
         self.hasEstimate = False
         self.grid_lines = None
+        self.grd_overlay = None
         #self.border_size = 15
         self.border_size = 30
         self.plot = Plot()
@@ -62,21 +63,23 @@ class GoBoard(DebugInfoProvider, Timing):
 
         Signals.subscribe(OnCameraGeometryChanged, self.cameraGeometryHasChanged)
         Signals.subscribe(OnInputChanged, self.reset)
+        Signals.subscribe(DetectBoard, self.__calib)
 
-    def __calib(self, *args) -> None:
-        self.calib()
+    def __calib(self, args) -> None:
+        img =args[0]
+        self.calib(img)
 
     def cameraGeometryHasChanged(self, *args) -> None:
         self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
                               principal_point=self.camera_calibration.get_center(), 
                               length_thresh=50,
-                              line_search_alg=LS_ALG.LSD)
+                              line_search_alg=LS_ALG.LSD_WITH_MERGE)
 
     def reset(self, *args) -> None:
         self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
                               principal_point=self.camera_calibration.get_center(), 
                               length_thresh=50,
-                              line_search_alg=LS_ALG.LSD)
+                              line_search_alg=LS_ALG.LSD_WITH_MERGE)
 
         self.grid = None
         self.go_board_shifted = None
@@ -166,14 +169,16 @@ class GoBoard(DebugInfoProvider, Timing):
 
         best_image = np.zeros_like(img)
         img_out = None
-        min_area = np.prod(img.shape)
+        smaller_side = min(img.shape)
+        min_area = (0.25*smaller_side)**2
+
         for c, cnt in enumerate(contours):
             if len(cnt) < 4:
                 continue
             img_out = img
             #expect at least half
             area = cv2.contourArea(cnt)
-            if area > 0.2*min_area:
+            if area > min_area:
 
                 #somethimes the contour has small dents .. approximate till we have four corners left
                 # to demonstrate the impact of contour approximation, let's loop
@@ -187,7 +192,7 @@ class GoBoard(DebugInfoProvider, Timing):
                     output = cv2.cvtColor(img.copy(), cv2.COLOR_GRAY2RGB)
                     #cv2.drawContours(output, [approx], -1, (0, 255, 0), 3)
                     #cv2.imshow("PyGO2", output)
-                    #cv2.waitKey(10)
+                    #cv2.waitKey(100)
 
                     #text = "eps={:.4f}, num_pts={}".format(eps, len(approx))
                     #cv2.putText(output, text, (0, 0), cv2.FONT_HERSHEY_SIMPLEX,\
@@ -268,34 +273,92 @@ class GoBoard(DebugInfoProvider, Timing):
         #    plt.show()
 
         return corners_mat
-    
-    def detect_board_corners(self, vp1: Point2D, vp2: Point2D, img_bw: B1CImage) -> NDArray:
+ 
+    def detect_board_corners_fast(self, vp1: Point2D, vp2: Point2D, img: B3CImage) -> NDArray:
         #img_bw = cv2.equalizeHist(img_bw)
+        img_bw = self.binarizeImage(img, C=20)
         corners = self.get_corners(vp1, vp2, img_bw)
-
-        if corners is None:
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
-            # loop over the kernels sizes
-            for _ in range(3):
-                cv2.morphologyEx(src=img_bw, dst=img_bw, op=cv2.MORPH_OPEN, kernel=kernel)
-                corners = self.get_corners(vp1, vp2, img_bw)
-                #up to threee filter layers
-                if corners is not None:
-                   break
 
         logging.debug('Corners {}'.format(corners))
  
         return corners
 
-    def get_corners_overlay(self, img: B3CImage) -> NDArray:
-        #img_gray = toGrayImage(img)
+
+    def update_grid(self, img, corners):
+        self.grid = get_ref_coords(img.shape, self.border_size)
+
+        target_corners = np.vstack((self.grid[18], 
+                                    self.grid[0], 
+                                    self.grid[342],
+                                    self.grid[360]))
+
+        H, ret = cv2.findHomography(target_corners, corners)
+        self.img_limits = (img.shape[1],img.shape[0])
+        
+        self.H = H 
+        self.grid_lines, self.grid_img, self.grd_overlay = get_grid_lines(self.grid)
+        self.hasEstimate=True
+        img_c_trim, (x,y) = mask_board(img, self.grid, self.border_size)
+        
+        self.go_board_shifted = self.grid - np.array([x,y])
+
+        self.cell_w = np.mean(np.diff(self.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))
+        self.cell_h = np.mean(np.diff(self.go_board_shifted.reshape(19,19,2)[:,:,1], axis=1))
+
+        self.cl2 = self.go_board_shifted - np.array([self.cell_w/2, 0])
+        self.cr2 = self.go_board_shifted + np.array([self.cell_w/2, 0])
+        self.ct2 = self.go_board_shifted + np.array([0, self.cell_h/2])
+        self.cb2 = self.go_board_shifted - np.array([0, self.cell_h/2])
+
+
+    def detect_board_corners(self, vp1: Point2D, vp2: Point2D, img: B3CImage) -> NDArray:
+        #img_bw = cv2.equalizeHist(img_bw)
+        for C in np.arange(1,50,5):
+            img_bw = self.binarizeImage(img, C)
+            corners = self.get_corners(vp1, vp2, img_bw)
+            #cv2.imshow('bw', img_bw)
+            #cv2.waitKey(500) 
+            if corners is not None:
+                self.update_grid(img_bw, corners)
+                if self.check_patches_are_centered(img_bw):
+                    # we found a good solution
+                    break
+
+        #if corners is None:
+        #    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+        #    # loop over the kernels sizes
+        #    for  in range(0):
+        #        cv2.morphologyEx(src=img_bw, dst=img_bw, op=cv2.MORPH_CLOSE, kernel=kernel)
+        #        corners = self.get_corners(vp1, vp2, img_bw)
+        #        #up to threee filter layers
+        #        if corners is not None:
+        #           break
+
+        logging.debug('Corners {}'.format(corners))
+ 
+        return corners
+
+    def binarizeImage(self, img:B1CImage, C=10) -> B1CImage:
+        #img = ((img-img.min()) / (img.max() - img.min()) * 255).astype(np.uint8)
         img_gray = toYUVImage(img)[:,:,0]
         img_bw = cv2.adaptiveThreshold(img_gray,
                                         255,
                                         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
+                                        #cv2.ADAPTIVE_THRESH_MEAN_C,\
                                         cv2.THRESH_BINARY_INV,
-                                        5,
-                                        15)
+                                        51,
+                                        C)
+        #cv2.imshow('before', img_bw)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+        #cv2.morphologyEx(src=img_bw, dst=img_bw, op=cv2.MORPH_CLOSE, kernel=kernel)
+        #cv2.imshow('after', img_bw)
+        #cv2.waitKey(1)
+        return img_bw
+
+    def get_corners_overlay(self, img: B3CImage) -> NDArray:
+        #img_gray = toGrayImage(img)
+        img_gray = toYUVImage(img)[:,:,0]
+        img_bw = self.binarizeImage(img, C=20)
 
         try:
             vp1, vp2 = self.get_vp(img_gray)
@@ -304,11 +367,17 @@ class GoBoard(DebugInfoProvider, Timing):
 
         # assumption most lines in the image are from the go board -> vp give us the plane
         # the contour which belongs to those vp is the board
-        corners = self.detect_board_corners(vp1, vp2, img_bw)
+        corners = self.detect_board_corners_fast(vp1, vp2, img)
+
         img_ = img.copy()
+        img_bw_ = toColorImage(img_bw)
         if corners is not None:
             corners = np.int32([corners])
             cv2.polylines(img_, corners, color=(0,255,0), isClosed=True, thickness=3)
+            cv2.polylines(img_bw_, corners, color=(0,255,0), isClosed=True, thickness=3)
+        self.showDebug(debugkeys.Board_Outline, img_bw_)
+
+ 
         return img_
 
 
@@ -326,11 +395,11 @@ class GoBoard(DebugInfoProvider, Timing):
         return vp1, vp2
     
     def calib(self, img: Image) -> None:
-        #img_c = img
+        img_c = img
         if len(img.shape) == 3:
             h,w,c = img.shape
             #instead of the grayscale variant extract the red part
-            img_bw = toYUVImage(img)[:,:,0]
+            img_bw = self.binarizeImage(img)
             img = toCMYKImage(img)[:,:,3]
             #plt.imshow(img)
             #plt.show()
@@ -342,21 +411,10 @@ class GoBoard(DebugInfoProvider, Timing):
         except NoVanishingPointsDetectedException:
             return False
 
-        #thresh, img_bw = cv2.threshold(img, \
-        #                            0, \
-        #                            255, \
-        #                            cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-        img_bw = cv2.adaptiveThreshold(img_bw, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 5,15)
-
-        #cv2.imshow('bw',img_bw)
-        #cv2.waitKey(1)
-        # clean img_bw
-
-
         # assumption most lines in the image are from the go board -> vp give us the plane
         # the contour which belongs to those vp is the board
-        corners = self.detect_board_corners(vp1, vp2, img_bw.copy())    
+        #self.vp.create_debug_VP_image(show_image=True)
+        corners = self.detect_board_corners(vp1, vp2, img_c)
         if corners is None:
             logging.error("Could not detect Go-Board corners!")
             return
@@ -364,32 +422,9 @@ class GoBoard(DebugInfoProvider, Timing):
         #self.grid = get_ref_go_board_coords(np.min(corners, axis=0), 
         #                                    np.max(corners, axis=0),
         #                                    self.border_size)
-        self.grid = get_ref_coords(img.shape, self.border_size)
 
-        target_corners = np.vstack((self.grid[18], 
-                                    self.grid[0], 
-                                    self.grid[342],
-                                    self.grid[360]))
-
-        
-        H, ret = cv2.findHomography(target_corners, corners)
-        self.img_limits = (img.shape[1],img.shape[0])
-        
-        self.H = H 
-        self.grid_lines, self.grid_img, self.grd_overlay = get_grid_lines(self.grid)
-        self.hasEstimate=True
-        img_c_trim, (x,y) = mask_board(img, self.grid, self.border_size)
-        self.go_board_shifted = self.grid - np.array([x,y])
-        self.cell_w = np.mean(np.diff(self.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))
-        self.cell_h = np.mean(np.diff(self.go_board_shifted.reshape(19,19,2)[:,:,1], axis=1))
         logging.info('Grid width {}'.format(self.cell_w))
         logging.info('Grid height {}'.format(self.cell_h))
-
-        self.cl2 = self.go_board_shifted - np.array([self.cell_w/2, 0])
-        self.cr2 = self.go_board_shifted + np.array([self.cell_w/2, 0])
-        self.ct2 = self.go_board_shifted + np.array([0, self.cell_h/2])
-        self.cb2 = self.go_board_shifted - np.array([0, self.cell_h/2])
-
 
         logging.debug(self.H)
         logging.info("Calibration successful")

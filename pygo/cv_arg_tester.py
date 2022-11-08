@@ -383,10 +383,64 @@ class Classifier(CV2ArgTester):
         return crcl
 
 
+
+class BoardDetect(CV2ArgTester):
+    def __init__(self, imgs):
+        CV2ArgTester.__init__(self, None)
+        self.imgs = imgs
+        self.img_ = self.stackImgs(self.imgs)
+        self.fn = self.detect
+
+    
+    def stackImgs(self, imgs):
+        l = len(imgs)
+        if l >= 2:
+            img_a = np.vstack(imgs[:l//2])
+            img_b = np.vstack(imgs[:l//2])
+            img = np.hstack((img_a, img_b))
+            img = cv2.resize(img, None, fx=.75, fy=.75)
+        else:
+            img = imgs[0]
+        return img
+
+    def redraw(self):
+        self.img_mask = []
+        detected = []
+        for img in self.imgs:
+            detected.append(self.fn(img))
+        self.img_ = self.stackImgs(detected)
+
+    def show(self):
+        print('____________________________')
+        
+        for k in self.args:
+            print('{} : {}'.format(k, self.get(k)))
+        if self.img_ is not None:
+            cv2.imshow('CV2ArgTester', self.img_)
+        else:
+            cv2.imshow('CV2ArgTester', self.img)
+        cv2.waitKey()
+
+    def detect(self, img):
+        img = ((img-img.min()) / (img.max() - img.min()) * 255).astype(np.uint8)
+        img = toYUVImage(img)[:,:,0]
+        img_bw = cv2.adaptiveThreshold(img,
+                                        255,
+                                        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
+                                        cv2.THRESH_BINARY_INV,
+                                        self.get('a'),
+                                        self.get('b'))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+        cv2.morphologyEx(src=img_bw, dst=img_bw, op=cv2.MORPH_CLOSE, kernel=kernel)
+        return img_bw
  
 if __name__ == '__main__':
-    #imgs = [cv2.imread('out{}.png'.format(i)) for i in range(6)]
-    imgs = [cv2.imread('out{}.png'.format(i)) for i in [7343, 4130, 3844, 4128]]
+    imgs = [cv2.imread('light0{}.png'.format(i)) for i in range(1,7)]
+    #imgs = [cv2.imread('out{}.png'.format(i)) for i in [7343, 4130, 3844, 4128]]
+    cap = cv2.VideoCapture('/home/michael/dev/PyGo/New video.mp4')
+    img = cap.read()[1]
+    img = cv2.resize(img, None, fx=0.5, fy=0.5)
+    imgs = [img]
     #ipt = Webcam()
     #board = GoBoard(ipt.getCalibration())
     #imgs = []
@@ -398,15 +452,18 @@ if __name__ == '__main__':
     #    cv2.imwrite('out{}.png'.format(i), imgs[-1])
     #board.calib(imgs[2])
     #imgs = [board.extract(x) for x in imgs]
-    imgs = [imgs[2]]
-    argtest = Classifier(imgs)
-    argtest.addArgument('med_range', 0.33, (0.0, 1.0))
-    argtest.addArgument('thresh', 0.8, (0.0, 1.0))
-    argtest.addArgument('C', 1, (-5, 5))
-    argtest.addArgument('KS', 36, (3, 145))
-    argtest.addArgument('CKS', 36, (3, 145))
-    argtest.addArgument('CL', 2, (0, 20))
+    #imgs = [imgs[2]]
+    #argtest = Classifier(imgs)
+    #argtest.addArgument('med_range', 0.33, (0.0, 1.0))
+    #argtest.addArgument('thresh', 0.8, (0.0, 1.0))
+    #argtest.addArgument('C', 1, (-5, 5))
+    #argtest.addArgument('KS', 36, (3, 145))
+    #argtest.addArgument('CKS', 36, (3, 145))
+    #argtest.addArgument('CL', 2, (0, 20))
 
+    argtest = BoardDetect(imgs)
+    argtest.addArgument('a', 15, (0, 50))
+    argtest.addArgument('b', 15, (0, 50))
  
     argtest.show()
 

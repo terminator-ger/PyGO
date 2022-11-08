@@ -1,11 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import Callable
+import logging
 
 class Signals(ABC):
     subs = {}
 
     @staticmethod
     def subscribe(sig, fun : Callable):
+        logging.debug("Function {} was registered for {}".format(fun , sig))
         sig = sig.__name__
         if sig not in Signals.subs.keys():
             Signals.subs[sig] = []
@@ -43,8 +45,8 @@ class GameTreeBack(Signals):
 class GameTreeForward(Signals):
     pass
 
-class GamePauseResume(Signals):
-    pass
+#class GamePauseResume(Signals):
+    #pass
 
 class OnCameraGeometryChanged(Signals):
     pass
@@ -56,4 +58,10 @@ class OnGridSizeUpdated(Signals):
     pass
 
 class GameNewMove(Signals):
+    pass
+
+class GamePause(Signals):
+    pass
+
+class GameRun(Signals):
     pass

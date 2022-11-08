@@ -5,7 +5,7 @@ import numpy as np
 from pygo.CameraCalib import CameraCalib
 import pdb
 
-from pygo.Signals import GamePauseResume, OnInputChanged, Signals
+from pygo.Signals import *
 from pygo.FileVideoStream import FileVideoStream
 import time
 
@@ -22,12 +22,14 @@ class Webcam:
         self.__is_paused = False
         self.__update_ports()
         self.__auto_calibrate()
-        Signals.subscribe(GamePauseResume, self.pause_stream)
+        Signals.subscribe(GamePause, self.pause_stream)
+        Signals.subscribe(GameRun, self.unpause_stream)
 
     def pause_stream(self, *args):
-        if self.__is_file:
-            #only pause video streams for webcams we lock the game component
-            self.__is_paused = not self.__is_paused
+        self.__is_paused = True
+
+    def unpause_stream(self, *args):
+        self.__is_paused = False
 
 
     def set_input_file_stream(self, file : str = None) -> None:
@@ -55,15 +57,10 @@ class Webcam:
         self.dy = int(delta[1])
         #self.camera_calib.set_image_size((width, height))
         Signals.emit(OnInputChanged)
-
-    def read(self) -> np.ndarray:
-        if self.__is_paused:
-            return None
+    
+    def __get_next_frame(self) -> np.ndarray:
+        img = self.cam.read()[1]
         if self.limit_resolution:
-            #if not self.read_file:
-                #img = self.cam.read()[1]
-            #if self.cam.more():
-                img = self.cam.read()[1]
                 img_ = cv2.resize(img, dsize=None, 
                                 fx = self.scale_factor, 
                                 fy = self.scale_factor)
@@ -74,15 +71,19 @@ class Webcam:
                     img_ = img_[:, self.dy//2: -self.dy//2]
                 elif self.dy == 0 and self.dx > 0:
                     img_ = img_[self.dx//2: -self.dx//2]
+                img = img_
 
-                return img_
-            #else:
-            #    return np.zeros_like((640,480))
+        return img
+
+    def read_ignore_lock(self) -> np.ndarray:
+        return self.__get_next_frame()
+
+    def read(self) -> np.ndarray:
+        if self.__is_paused:
+            return None
         else:
-            return self.cam.read()[1]
-            #if self.cam.more():
-            #else:
-            #    return np.zeros_like((640,480))
+            return self.__get_next_frame()
+
 
     def release(self) -> None:
         self.cam.release()

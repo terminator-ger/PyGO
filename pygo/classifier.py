@@ -146,48 +146,6 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         self.cv_settings =  CV2PlotSettings()
         Signals.subscribe(OnBoardGridSizeKnown, self.update_grid_size)
 
-    def remove_glare(self, img):
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        grayimg = gray
-
-
-        GLARE_MIN = np.array([0, 0, 50],np.uint8)
-        GLARE_MAX = np.array([0, 0, 225],np.uint8)
-
-        hsv_img = cv2.cvtColor(img,cv2.COLOR_BGR2HSV)
-
-        #HSV
-        frame_threshed = cv2.inRange(hsv_img, GLARE_MIN, GLARE_MAX)
-
-
-        #INPAINT
-        mask1 = cv2.threshold(grayimg , 220, 255, cv2.THRESH_BINARY)[1]
-        #result1 = cv2.inpaint(img, mask1, 0.1, cv2.INPAINT_TELEA) 
-
-        #CLAHE
-        clahefilter = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(16,16))
-        #claheCorrecttedFrame = clahefilter.apply(grayimg)
-
-        #COLOR 
-        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-        lab_planes = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=2.0,tileGridSize=(8,8))
-        lab_planes[0] = clahe.apply(lab_planes[0])
-        lab = cv2.merge(lab_planes)
-        #clahe_bgr = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-
-
-        #INPAINT + HSV
-        result = cv2.inpaint(img, frame_threshed, 0.1, cv2.INPAINT_TELEA) 
-
-        lab1 = cv2.cvtColor(result, cv2.COLOR_BGR2LAB)
-        lab_planes1 = cv2.split(lab1)
-        clahe1 = cv2.createCLAHE(clipLimit=2.0,tileGridSize=(8,8))
-        lab_planes1[0] = clahe1.apply(lab_planes1[0])
-        lab1 = cv2.merge(lab_planes1)
-        img_glare_removed = cv2.cvtColor(lab1, cv2.COLOR_LAB2BGR)
-        return img_glare_removed
-
 
 
 
@@ -295,6 +253,7 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
             x,y,w,h = cv2.boundingRect(cnt)
             cv2.drawContours(filled, [cnt], 0 , 255, -1)
         return filled
+
     def __remove_board_lines(self, cmyk):
         ''' returns a mask without the go boards lines'''
         kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (5,5))
@@ -326,6 +285,7 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         lbl[lbl == -1] = 0
         lbl = lbl.astype(np.uint8)
         return 255 - lbl
+
     def remove_glare2(self, img):
         GLARE_MIN = np.array([0, 0, 50],np.uint8)
         GLARE_MAX = np.array([0, 0, 225],np.uint8)
@@ -741,7 +701,50 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         markers = cv2.watershed(toColorImage(fg), markers)
 
         return markers
-            
+
+    def remove_glare(self, img):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        grayimg = gray
+
+
+        GLARE_MIN = np.array([0, 0, 50],np.uint8)
+        GLARE_MAX = np.array([0, 0, 225],np.uint8)
+
+        hsv_img = cv2.cvtColor(img,cv2.COLOR_BGR2HSV)
+
+        #HSV
+        frame_threshed = cv2.inRange(hsv_img, GLARE_MIN, GLARE_MAX)
+
+
+        #INPAINT
+        mask1 = cv2.threshold(grayimg , 220, 255, cv2.THRESH_BINARY)[1]
+        #result1 = cv2.inpaint(img, mask1, 0.1, cv2.INPAINT_TELEA) 
+
+        #CLAHE
+        clahefilter = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(16,16))
+        #claheCorrecttedFrame = clahefilter.apply(grayimg)
+
+        #COLOR 
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        lab_planes = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0,tileGridSize=(8,8))
+        lab_planes[0] = clahe.apply(lab_planes[0])
+        lab = cv2.merge(lab_planes)
+        #clahe_bgr = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+
+        #INPAINT + HSV
+        result = cv2.inpaint(img, frame_threshed, 0.1, cv2.INPAINT_TELEA) 
+
+        lab1 = cv2.cvtColor(result, cv2.COLOR_BGR2LAB)
+        lab_planes1 = cv2.split(lab1)
+        clahe1 = cv2.createCLAHE(clipLimit=2.0,tileGridSize=(8,8))
+        lab_planes1[0] = clahe1.apply(lab_planes1[0])
+        lab1 = cv2.merge(lab_planes1)
+        img_glare_removed = cv2.cvtColor(lab1, cv2.COLOR_LAB2BGR)
+        return img_glare_removed
+
+
 
     def __watershed(self, fg : B1CImage) -> B1CImage:
         #fg = toByteImage(fg)
@@ -1330,3 +1333,21 @@ class BOWClassifier(Classifier):
 if __name__ == '__main__':
     cls = HaarClassifier()
     cls.train()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

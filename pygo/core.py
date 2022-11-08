@@ -41,13 +41,21 @@ class PyGO(Timing):
         self.input_is_frozen = False
     
         self.PatchClassifier = CircleClassifier(self.Board, 19)
-        Signals.subscribe(GamePauseResume, self.freeze)
+        #Signals.subscribe(GamePauseResume, self.freeze)
+        Signals.subscribe(GameRun, self.unfreeze)
+        Signals.subscribe(GamePause, self.freeze)
+        Signals.subscribe(GameNew, self.startNewGame)
 
     def freeze(self, *args) -> None:
-        self.input_is_frozen = True if not self.input_is_frozen else False
+        self.input_is_frozen = True 
 
-    def startNewGame(self, *args) -> None:
-        self.img_cam = self.input_stream.read()
+    def unfreeze(self, *args) -> None:
+        self.input_is_frozen = False
+
+    def startNewGame(self, size=19) -> None:
+        #unfreeze to allow reading of new frame
+
+        self.img_cam = self.input_stream.read_ignore_lock()
         if not self.Board.hasEstimate:
             self.Board.calib(self.img_cam)
         
@@ -56,6 +64,9 @@ class PyGO(Timing):
             self.img_cropped = self.Board.extract(self.img_cam)
             val = self.PatchClassifier.predict(self.img_cropped)
             self.Game.updateState(val)
+
+        # pause the game 
+        Signals.emit(GamePause)
 
 
     def loop10x(self) -> None:
