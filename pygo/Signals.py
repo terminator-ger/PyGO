@@ -21,12 +21,13 @@ class Signals(ABC):
                 sub(args)
 
 
+# Commands to different submodules/ Detected Events
 class DetectBoard(Signals):
     pass
 
-class GameNew(Signals):
+class DetectHandicap(Signals):
     pass
-
+ 
 class OnBoardDetected(Signals):
     pass
 
@@ -39,15 +40,6 @@ class OnSettingsChanged(Signals):
 class OnBoardMoved(Signals):
     pass
 
-class GameTreeBack(Signals):
-    pass
-
-class GameTreeForward(Signals):
-    pass
-
-#class GamePauseResume(Signals):
-    #pass
-
 class OnCameraGeometryChanged(Signals):
     pass
 
@@ -57,6 +49,17 @@ class OnInputChanged(Signals):
 class OnGridSizeUpdated(Signals):
     pass
 
+
+# Game tree navigation and playing moves
+class GameTreeBack(Signals):
+    pass
+
+class GameTreeForward(Signals):
+    pass
+
+class GameNew(Signals):
+    pass
+
 class GameNewMove(Signals):
     pass
 
@@ -64,4 +67,10 @@ class GamePause(Signals):
     pass
 
 class GameRun(Signals):
+    pass
+
+class GameHandicapMove(Signals):
+    pass
+
+class GameReset(Signals):
     pass

@@ -51,7 +51,7 @@ class Plot:
         return img
 
 
-    def plot_overlay(self, val, coords, img_ipt):
+    def plot_overlay(self, val, coords, img_ipt, forced_moves):
         img = img_ipt
         val = val.reshape(-1)
         coords = coords.reshape(-1,2)
@@ -83,7 +83,7 @@ class Plot:
 
         return img
 
-    def plot_virt_grid(self, val, coords, img_ipt):
+    def plot_virt_grid(self, val, coords, img_ipt, forced_moves):
         val = val.reshape(-1)
         coords = coords.reshape(-1,2)
         img = img_ipt.copy()

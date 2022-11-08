@@ -1,38 +1,25 @@
-from time import sleep
-
-from pip import main
 import cv2
-import numpy as np
 import pdb
+import numpy as np
 import threading
-from datetime import datetime
 import PIL
-from PIL import ImageTk
 import logging
+
+from PIL import ImageTk
+from datetime import datetime
 from functools import partial
 
-
 import tkinter as tk
-from tkinter import ttk
-from tkinter import filedialog as fd
 import tkinter.scrolledtext as scrolledtext
 
+from tkinter import ttk
+from tkinter import filedialog as fd
 
-from pygo.Signals import *
 from pygo.core import PyGO
-from pygo.classifier import GoClassifier, HaarClassifier, IlluminanceClassifier, CircleClassifier
-from pygo.Motiondetection import MotionDetectionMOG2
-from pygo.GoBoard import GoBoard
 from pygo.utils.typing import B3CImage, Image, NetMove
-from pygo.utils.data import save_training_data
-from pygo.utils.misc import flattenList
 from pygo.utils.debug import DebugInfo
-from pygo.Game import Game, GameState
-from pygo.Ensemble import SoftVoting, MajorityVoting
-from pygo.Webcam import Webcam
+from pygo.Game import  GameState
 from pygo.Signals import *
-
-#from pygo.ui.InputWindow import InputWindow
 
 class PyGOTk:
     #types
@@ -41,7 +28,7 @@ class PyGOTk:
 
     def __init__(self, pygo: PyGO = None):
         logging.basicConfig()
-        logging.getLogger().setLevel(logging.INFO)
+        logging.getLogger().setLevel(logging.DEBUG)
 
 
         if pygo is None:
@@ -77,7 +64,12 @@ class PyGOTk:
         boardmenu.add_command(label='Detect', command=self.onBoardDetect)
 
         gamemenu = tk.Menu(self.menubar, tearoff=0)
-        gamemenu.add_command(label='Start new', command=self.onGameNew)
+        gamemenu.add_command(label='New Game', command=self.onGameNew)
+        gamemenu.add_separator()
+        gamemenu.add_command(label='Pause', command=self.GamePause)
+        gamemenu.add_command(label='Resume', command=self.GameRun)
+        gamemenu.add_separator()
+        gamemenu.add_command(label='Detect Handicap', command=self.onDetectHandicap)
         
         self.viewVar = tk.IntVar(value=0)
         viewmenu = tk.Menu(self.menubar, tearoff=0)
@@ -122,7 +114,7 @@ class PyGOTk:
         self.go_board_display.grid(column=0, row=0, sticky=tk.W, padx=5, pady=5)
         self.go_board_display.image = self.tkimage
 
-        self.move_log = scrolledtext.ScrolledText(self.root, undo=True, width=10)
+        self.move_log = scrolledtext.ScrolledText(self.root, undo=True, width=15)
         self.move_log.grid(column=1, row=0, padx=5, pady=5)
 
         self.sep_h = ttk.Separator(self.root, orient='horizontal')
@@ -147,22 +139,22 @@ class PyGOTk:
         }
 
 
-        self.root.bind("<space>", self.freeze)
-        self.go_board_display.bind("<ButtonPress-1>", self.motion)
+        self.root.bind("<space>", self.GameTogglePauseResume)
+        self.go_board_display.bind("<ButtonPress-1>", self.leftMouseOnGOBoard)
 
         self.moveHistory = []
 
 
         Signals.subscribe(GameNewMove, self.newMove)
+        Signals.subscribe(GameHandicapMove, self.addHandicap)
         Signals.subscribe(OnBoardDetected, self.updateGrid)
+        Signals.subscribe(GameReset, self.__clear_log)
 
-    def newMove(self, args):
-        msg = args[0]
-        self.logMove(msg)
+    def onDetectHandicap(self):
+        Signals.emit(DetectHandicap)
 
-
-    def motion(self, event):
-        if self.pygo.Game.GS == GameState.RUNNING:
+    def leftMouseOnGOBoard(self, event):
+        if self.pygo.Game.GS != GameState.NOT_STARTED:
             x, y = event.x, event.y
 
             if self.viewVar.get() in [0,1]:
@@ -184,7 +176,7 @@ class PyGOTk:
     def freeze(self, event=None) -> None:
         self.pygo.freeze()
 
-    def GameTogglePauseResume(self) -> None:
+    def GameTogglePauseResume(self, event=None) -> None:
         if self.pygo.Game.GS == GameState.RUNNING:
             self.GamePause()
         elif self.pygo.Game.GS == GameState.PAUSED:
@@ -280,6 +272,7 @@ class PyGOTk:
     def onInputDeviceChanged(self):
         dev, i = self.input_devices[self.v.get()]
         self.pygo.input_stream.set_input_file_stream(dev)
+        Signals.emit(GameReset, 19)
 
 
     def onSettings(self):
@@ -371,14 +364,29 @@ class PyGOTk:
 
     def onFileExit(self) -> None:
         self.on_closing()
+    
+    def __clear_log(self, *args):
+        self.move_log.delete('1.0', tk.END)
 
     def onGameNew(self) -> None:
+        self.__clear_log()
         cur_time = datetime.now().strftime("%d-%m-%Y")
-        self.move_log.delete('1.0', tk.END)
         self.move_log.insert('end', 'New Game\n')
         self.move_log.insert('end', '{}\n'.format(cur_time))
         self.move_log.insert('end', '==========\n')
         Signals.emit(GameNew, 19)
+
+    def newMove(self, args):
+        msg = args[0]
+        self.logMove(msg)
+
+    def addHandicap(self, args):
+        moves = args[0]
+        self.move_log.insert('end', 'Handicap +{}\n'.format(len(moves)))
+        for (x,y) in moves:
+            logging.debug('TK: Handicap at {} {}'.format(x,y))
+        self.move_log.see('end')  # move to the end after adding new text
+
 
     def run(self) -> None:
         self.root.after(1, self.update)
@@ -393,6 +401,7 @@ class PyGOTk:
                 pass
             else:
                 move = '{}: {}-{}\n'.format(msg[0], msg[1]+1, msg[2]+1)
+                logging.debug('TK: new move ' + move)
                 self.moveHistory.append(move)
                 self.move_log.insert('end', move)
             self.move_log.see('end')  # move to the end after adding new text

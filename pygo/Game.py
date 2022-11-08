@@ -60,6 +60,7 @@ class Game(DebugInfoProvider, Timing):
         Signals.subscribe(OnSettingsChanged, self.settings_updated)
         Signals.subscribe(GameRun, self.__game_run)
         Signals.subscribe(GamePause, self.__game_pause)
+        Signals.subscribe(GameReset, self.__resetGameState)
 
         Signals.subscribe(GameNew, self.__startNewGame)
         Signals.subscribe(GameTreeBack, self.__game_tree_back)
@@ -81,7 +82,20 @@ class Game(DebugInfoProvider, Timing):
     def __startNewGame(self, *args) -> None:
         self.startNewGame()
 
+    def __resetGameState(self, *args) -> None:
+        logging.debug("GAME: Reset Game state")
+        size = 19
+        self.game_tree = sgf.Sgf_game(size=size)
+        self.GS = GameState.NOT_STARTED
+        self.state = np.ones((self.board_size, self.board_size), dtype=int)*2
+        self.board_size = size
+        self.last_x = -1
+        self.last_y = -1
+        self.last_color = 2
+        self.manualMoves = []
+
     def startNewGame(self, size=19) -> None:
+        logging.debug("GAME: Starting new Game")
         self.game_tree = sgf.Sgf_game(size=size)
         self.GS = GameState.RUNNING
         self.state = np.ones((self.board_size, self.board_size), dtype=int)*2
@@ -92,17 +106,14 @@ class Game(DebugInfoProvider, Timing):
         self.manualMoves = []
        
     def saveGame(self, file: TextIO = None) -> None:
-        if self.GS == GameState.RUNNING:
-            if file is None:
-                cur_time = datetime.now().strftime("%d-%m-%Y_%H%M%S")
-                file = '{}.sgf'.format(cur_time)
-                with open(file, 'wb') as f:
-                    f.write(self.game_tree.serialise())
-            else:
-                file.write(self.game_tree.serialise())
+        if file is None:
+            cur_time = datetime.now().strftime("%d-%m-%Y_%H%M%S")
+            file = '{}.sgf'.format(cur_time)
+            with open(file, 'wb') as f:
+                f.write(self.game_tree.serialise())
+        else:
+            file.write(self.game_tree.serialise())
 
-            self.GS = GameState.NOT_STARTED
-            self.game_tree = None
 
     def _test_set(self, stone, coords) -> None:
         x = coords[0]
@@ -176,29 +187,29 @@ class Game(DebugInfoProvider, Timing):
 
     def whichMovesAreInTheGameTree(self, state) -> Tuple[List[Move],List[Move]]:
         idx = np.argwhere(np.abs(self.state-state)>0)
-        if self.GS == GameState.RUNNING:
-            X = idx[:,0]
-            Y = idx[:,1]
-            isInTree = []
-            notInTree = []
-            for i in range(len(X)):
-                x = X[i]
-                y = Y[i]
-                c = state[x,y]
-                c_str = N2C(c)
-                seq = self.game_tree.get_main_sequence()[:-2]
-                for node in seq:
-                    if node.properties()[-1] == c_str and (x,y) == node.get(c_str):
-                        isInTree.append((c_str, (x,y)))
-                        break
-                # not found
-                notInTree.append((c_str,(x,y)))
-            return (isInTree, notInTree)
-        else:
-            return ([],[])
+        #if self.GS == GameState.RUNNING:
+        X = idx[:,0]
+        Y = idx[:,1]
+        isInTree = []
+        notInTree = []
+        for i in range(len(X)):
+            x = X[i]
+            y = Y[i]
+            c = state[x,y]
+            c_str = N2C(c)
+            seq = self.game_tree.get_main_sequence()[:-2]
+            for node in seq:
+                if node.properties()[-1] == c_str and (x,y) == node.get(c_str):
+                    isInTree.append((c_str, (x,y)))
+                    break
+            # not found
+            notInTree.append((c_str,(x,y)))
+        return (isInTree, notInTree)
+        #else:
+        #    return ([],[])
 
     def _check_handicap(self, newState) -> NetMove:
-
+        newState = newState.reshape(19,19)
         isInTree, notInTree = self.whichMovesAreInTheGameTree(newState)
         # we just initialized a new game we could have handicap stones
         # all black and on the defined positions
@@ -206,9 +217,12 @@ class Game(DebugInfoProvider, Timing):
                               (3,9),  (9,3), (15,9), (9, 15), 
                               (9,9)]
         BoardSetup = boards.Board(self.board_size)
-        
+
+        # we need black stones, more than one and only on start points 
         if all([x[0]=='B' for x in notInTree]) and\
-           all([x[1] in handicap_positions for x in notInTree]):
+           all([x[1] in handicap_positions for x in notInTree]) and\
+           len([x[0]=='B' for x in notInTree]) > 1:
+
             #self.sgf_node.set("HA", len(notInTree))
             moves_black = []
             moves_white = []
@@ -221,6 +235,7 @@ class Game(DebugInfoProvider, Timing):
 
             #self.sgf_node.set("AB", moves)
             self.last_color = C2N("B")
+            Signals.emit(GameHandicapMove, moves_black)
 
 
     
@@ -248,7 +263,6 @@ class Game(DebugInfoProvider, Timing):
                 logging.debug('Adding {} at {} {}'.format(c_str, x, y))
                 self._setStone(x, y, c_str)
 
-        #for (c_str, (x,y)) in isInTree:
             if c_str == 'E':
                 logging.debug('Removing {} at {} {}'.format(c_str, x, y))
                 self._captureStone(x, y)
@@ -441,7 +455,7 @@ class Game(DebugInfoProvider, Timing):
 
         '''
         isInTree, notInTree = self.whichMovesAreInTheGameTree(newState)
-
+        
         added_next_color = [x for x in notInTree if x[0] not in ['E', N2C(self.last_color)]]
         added_old_color = [x for x in notInTree if x[0] == N2C(self.last_color)]
         removed_old_color = [x for x in notInTree if x[0] == 'E' and self.state[x[1][0],x[1][1]] == self.last_color]

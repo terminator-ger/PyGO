@@ -45,6 +45,7 @@ class PyGO(Timing):
         Signals.subscribe(GameRun, self.unfreeze)
         Signals.subscribe(GamePause, self.freeze)
         Signals.subscribe(GameNew, self.startNewGame)
+        Signals.subscribe(DetectHandicap, self.__analyzeHandicap)
 
     def freeze(self, *args) -> None:
         self.input_is_frozen = True 
@@ -52,18 +53,28 @@ class PyGO(Timing):
     def unfreeze(self, *args) -> None:
         self.input_is_frozen = False
 
+    def __analyzeHandicap(self, *args) -> None:
+        if self.Board.hasEstimate:
+            self.img_cam = self.input_stream.read_ignore_lock()
+            self.img_cropped = self.Board.extract(self.img_cam)
+            val = self.PatchClassifier.predict(self.img_cropped)
+            self.Game._check_handicap(val)
+        else:
+            logging.warning('No Board detected - make sure to place the board \
+                             in the cameras center')
+
     def startNewGame(self, size=19) -> None:
         #unfreeze to allow reading of new frame
 
+        self.Game.startNewGame(19)
         self.img_cam = self.input_stream.read_ignore_lock()
         if not self.Board.hasEstimate:
             self.Board.calib(self.img_cam)
         
         if self.Board.hasEstimate:
-            self.Game.startNewGame(19)
             self.img_cropped = self.Board.extract(self.img_cam)
-            val = self.PatchClassifier.predict(self.img_cropped)
-            self.Game.updateState(val)
+            #val = self.PatchClassifier.predict(self.img_cropped)
+            #self.Game.updateState(val)
 
         # pause the game 
         Signals.emit(GamePause)
@@ -91,7 +102,9 @@ class PyGO(Timing):
 
             if self.Board.hasEstimate:
                 self.img_cropped =  self.Board.extract(self.img_cam)
-                if self.Motiondetection.hasNoMotion(self.img_cropped) and not self.Game.isPaused():
+                if self.Motiondetection.hasNoMotion(self.img_cropped) \
+                    and not self.Game.isPaused():
+
                     i = [x for x in os.listdir('.') if 'out' in x]
                     i = len(i)
                     fn = 'out{}.png'.format(i+1)
@@ -105,10 +118,12 @@ class PyGO(Timing):
                         val = self.PatchClassifier.predict(self.img_cropped)
                         self.img_overlay = self.Plot.plot_overlay(val, 
                                                         self.Board.go_board_shifted, 
-                                                        self.img_cropped)
+                                                        self.img_cropped,
+                                                        self.Game.manualMoves)
                         self.img_virtual = self.Plot.plot_virt_grid(val, 
                                                         self.Board.grd_overlay, 
-                                                        self.Board.grid_img)
+                                                        self.Board.grid_img,
+                                                        self.Game.manualMoves)
 
 
                         self.Game.updateState(val)
@@ -118,14 +133,14 @@ class PyGO(Timing):
                     #overlay old state during motion
                     self.img_overlay = self.Plot.plot_overlay(self.Game.state,
                                                                 self.Board.go_board_shifted,
-                                                                self.img_cropped)
+                                                                self.img_cropped,
+                                                                self.Game.manualMoves)
                     self.img_virtual = self.Plot.plot_virt_grid(self.Game.state, 
                                                         self.Board.grd_overlay, 
-                                                        self.Board.grid_img)
+                                                        self.Board.grid_img,
+                                                        self.Game.manualMoves)
             else:
-                #self.tic('coverlay')
                 img = self.Board.get_corners_overlay(self.img_cam)
-                #self.toc('coverlay')
                 self.img_overlay = img
                 self.img_virtual = img
                 self.img_cropped = img
