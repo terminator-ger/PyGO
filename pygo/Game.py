@@ -86,6 +86,7 @@ class Game(DebugInfoProvider, Timing):
         logging.debug("GAME: Reset Game state")
         size = 19
         self.game_tree = sgf.Sgf_game(size=size)
+        self.game_tree.extend_main_sequence()
         self.GS = GameState.NOT_STARTED
         self.state = np.ones((self.board_size, self.board_size), dtype=int)*2
         self.board_size = size
@@ -97,6 +98,7 @@ class Game(DebugInfoProvider, Timing):
     def startNewGame(self, size=19) -> None:
         logging.debug("GAME: Starting new Game")
         self.game_tree = sgf.Sgf_game(size=size)
+        self.game_tree.extend_main_sequence()
         self.GS = GameState.RUNNING
         self.state = np.ones((self.board_size, self.board_size), dtype=int)*2
         self.board_size = size
@@ -268,7 +270,7 @@ class Game(DebugInfoProvider, Timing):
                 self._captureStone(x, y)
 
         
-    def setManual(self, x:int ,y:int) -> None:
+    def setManual(self, x:int ,y:int, color:Optional[int]=None) -> None:
         ''' 
             Manual override for single moves
             Fallback in case some detection does not work als intended
@@ -291,6 +293,17 @@ class Game(DebugInfoProvider, Timing):
             self.manualMoves.append([c, (x,y)])
             logging.debug("Manual overwrite: Adding {} Stone at {} {}".format(N2C(c), x+1,y+1))
         return self.applyManualMoves(self.state)
+
+    def clearManual(self, x:int, y:int) -> None:
+        del_move = None
+        for c,(x_,y_) in self.manualMoves:
+            if x_ == x and y_ == y:
+                del_move = [c, (x_,y_)]
+        if del_move is not None:
+            self.manualMoves.remove(del_move)
+    
+    def clearManualAll(self) -> None:
+        self.manualMoves = []
 
     def undo(self) -> None:
         '''
@@ -343,36 +356,43 @@ class Game(DebugInfoProvider, Timing):
         if last.get_move() != (None, None):
             n, (x,y) = last.get_move()
             self.state[x,y] = C2N('E')
-
-            if last.parent:
+            
+            if last.parent.parent is not None:
                 n, (x,y) = last.parent.get_move()
             else:
                 n = 'E'
                 x = -1
                 y = -1
+
+            if last.parent is not None:
+                last.reparent(last.parent, 1)
+                last.parent.new_child(0)
+ 
             self.last_color = C2N(n)
             self.last_x = x
             self.last_y = y
-            last.reparent(last.parent, 1)
-            last.parent.new_child(0)
-
     
     def __game_tree_forward(self, *args):
         if self.GS == GameState.RUNNING:
             self.GS = GameState.PAUSED
             logging.info("Paused Game")
 
-        cur_node = self.game_tree.get_last_node().parent
+        par_node = self.game_tree.get_last_node().parent
+        
         # moving back in time removes moves from the leftmost variation
-        if len(cur_node) >=1:
-            next_moves = cur_node[1]
-            #next_moves = self.game_tree.get_main_sequence_below(cur_node[1])
+        if len(par_node) > 1:
+            next_moves = par_node[1]
+            dead_end = par_node[0]
+            dead_end.delete()
+
+            # delete the other node as we would generate multiple 
+            # dead ends skipping fwd and bwd
             n, (x,y) = next_moves.get_move()
             self.state[x,y] = C2N(n)
             self.last_color = C2N(n)
             self.last_x = x
             self.last_y = y
-            next_moves.reparent(cur_node, 0)
+            next_moves.reparent(par_node, 0)
  
 
     def _setStone(self, x:int, y:int, c_str:str) -> None:

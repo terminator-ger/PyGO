@@ -119,11 +119,15 @@ class PyGO(Timing):
                         self.img_overlay = self.Plot.plot_overlay(val, 
                                                         self.Board.go_board_shifted, 
                                                         self.img_cropped,
-                                                        self.Game.manualMoves)
+                                                        self.Game.manualMoves,
+                                                        self.Game.last_x,
+                                                        self.Game.last_y)
                         self.img_virtual = self.Plot.plot_virt_grid(val, 
                                                         self.Board.grd_overlay, 
                                                         self.Board.grid_img,
-                                                        self.Game.manualMoves)
+                                                        self.Game.manualMoves,
+                                                        self.Game.last_x,
+                                                        self.Game.last_y)
 
 
                         self.Game.updateState(val)
@@ -134,11 +138,15 @@ class PyGO(Timing):
                     self.img_overlay = self.Plot.plot_overlay(self.Game.state,
                                                                 self.Board.go_board_shifted,
                                                                 self.img_cropped,
-                                                                self.Game.manualMoves)
+                                                                self.Game.manualMoves,
+                                                                self.Game.last_x,
+                                                                self.Game.last_y)
                     self.img_virtual = self.Plot.plot_virt_grid(self.Game.state, 
                                                         self.Board.grd_overlay, 
                                                         self.Board.grid_img,
-                                                        self.Game.manualMoves)
+                                                        self.Game.manualMoves,
+                                                        self.Game.last_x,
+                                                        self.Game.last_y)
             else:
                 img = self.Board.get_corners_overlay(self.img_cam)
                 self.img_overlay = img

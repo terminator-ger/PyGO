@@ -18,6 +18,7 @@ from tkinter import filedialog as fd
 from pygo.core import PyGO
 from pygo.utils.typing import B3CImage, Image, NetMove
 from pygo.utils.debug import DebugInfo
+from pygo.utils.color import C2N
 from pygo.Game import  GameState
 from pygo.Signals import *
 
@@ -70,6 +71,7 @@ class PyGOTk:
         gamemenu.add_command(label='Resume', command=self.GameRun)
         gamemenu.add_separator()
         gamemenu.add_command(label='Detect Handicap', command=self.onDetectHandicap)
+        gamemenu.add_command(label='Clear Manual Stones', command=self.onClearManualAll)
         
         self.viewVar = tk.IntVar(value=0)
         viewmenu = tk.Menu(self.menubar, tearoff=0)
@@ -123,11 +125,11 @@ class PyGOTk:
         self.go_tree_display = tk.PanedWindow(self.root)
         self.go_tree_display.grid(column=0, row=2)
 
-        self.go_tree_bwd   = tk.Button(self.go_tree_display, text="<=", command=self.GameTreeBack)
+        self.go_tree_bwd   = tk.Button(self.go_tree_display, text="<-", command=self.GameTreeBack)
         self.go_tree_bwd.grid(column=0, row=0)
         self.go_tree_pause = tk.Button(self.go_tree_display, text="|>", command=self.GameTogglePauseResume)
         self.go_tree_pause.grid(column=1, row=0)
-        self.go_tree_fwd   = tk.Button(self.go_tree_display, text="=>", command=self.GameTreeForward)
+        self.go_tree_fwd   = tk.Button(self.go_tree_display, text="->", command=self.GameTreeForward)
         self.go_tree_fwd.grid(column=2, row=0)
 
 
@@ -138,9 +140,16 @@ class PyGOTk:
                          'MotionDetectionFactor': tk.DoubleVar(value=0.6),
         }
 
+        self.contextMenu = tk.Menu(self.root, tearoff=False)
+        self.contextMenu.add_command(label='White', command=self.addManualWhite)
+        self.contextMenu.add_command(label='Black', command=self.addManualBlack)
+        self.contextMenu.add_command(label='None', command=self.addManualNone)
+        self.contextMenu.add_separator()
+        self.contextMenu.add_command(label='Clear', command=self.removeManual)
 
         self.root.bind("<space>", self.GameTogglePauseResume)
         self.go_board_display.bind("<ButtonPress-1>", self.leftMouseOnGOBoard)
+        self.go_board_display.bind("<ButtonPress-3>", self.rightMouseOnGOBoard)
 
         self.moveHistory = []
 
@@ -153,25 +162,70 @@ class PyGOTk:
     def onDetectHandicap(self):
         Signals.emit(DetectHandicap)
 
+    def __eventCoordsToGameCoords(self, event):
+        x, y = event.x, event.y
+        return self.__coordsToGameCoords(x,y)
+    
+    def __coordsToGameCoords(self, x, y):
+        if self.viewVar.get() in [0,1]:
+            grid = self.grid.reshape(19*19,2)
+        elif self.viewVar.get() == 2:
+            grid = self.grd_virtual.reshape(19*19,2)
+        else:
+            raise RuntimeError("Unkown View Layer")
+
+        x_grid = np.repeat(x, 19*19)
+        y_grid = np.repeat(y, 19*19)
+        ref = np.stack((x_grid, y_grid)).T
+        dist = np.mean((ref - grid)**2, axis=1)
+        coord = np.argmin(dist)
+        x_board, y_board = np.unravel_index(coord, (19,19))
+        return (x_board, y_board)
+
     def leftMouseOnGOBoard(self, event):
         if self.pygo.Game.GS != GameState.NOT_STARTED:
-            x, y = event.x, event.y
-
-            if self.viewVar.get() in [0,1]:
-                grid = self.grid.reshape(19*19,2)
-            elif self.viewVar.get() == 2:
-                grid = self.grd_virtual.reshape(19*19,2)
-            else:
-                raise RuntimeError("Unkown View Layer")
-
-            x_grid = np.repeat(x, 19*19)
-            y_grid = np.repeat(y, 19*19)
-            ref = np.stack((x_grid, y_grid)).T
-            dist = np.mean((ref - grid)**2, axis=1)
-            coord = np.argmin(dist)
-            x_board, y_board = np.unravel_index(coord, (19,19))
+            x_board, y_board = self.__eventCoordsToGameCoords(event)
             self.pygo.Game.setManual(x_board, y_board)
-    
+
+    def rightMouseOnGOBoard(self, event):
+        if self.pygo.Game.GS != GameState.NOT_STARTED:
+            #x_board, y_board = self.__eventCoordsToGameCoords(event)
+            if self.pygo.Game.nextMove() == C2N('W'):
+                self.contextMenu.entryconfig("White", state="normal")
+                self.contextMenu.entryconfig("Black", state="disabled")
+            elif self.pygo.Game.nextMove() == C2N('B'):
+                self.contextMenu.entryconfig("White", state="disabled")
+                self.contextMenu.entryconfig("Black", state="normal")
+            else:
+                self.contextMenu.entryconfig("White", state="normal")
+                self.contextMenu.entryconfig("Black", state="normal")
+            self.contextMenu.tk_popup(event.x_root, event.y_root)
+
+    def addManualWhite(self) -> None:
+        c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
+        c_y = self.contextMenu.winfo_y() - self.go_board_display.winfo_rooty()
+        x,y = self.__coordsToGameCoords(c_x, c_y)
+        self.pygo.Game.setManual(x,y,C2N('W'))
+
+    def addManualBlack(self) -> None:
+        c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
+        c_y = self.contextMenu.winfo_y() - self.go_board_display.winfo_rooty()
+        x,y = self.__coordsToGameCoords(c_x, c_y)
+        self.pygo.Game.setManual(x,y,C2N('B'))
+
+    def addManualNone(self) -> None:
+        c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
+        c_y = self.contextMenu.winfo_y() - self.go_board_display.winfo_rooty()
+        x,y = self.__coordsToGameCoords(c_x, c_y)
+        self.pygo.Game.setManual(x,y,C2N('E'))
+
+
+    def removeManual(self) -> None:
+        c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
+        c_y = self.contextMenu.winfo_y() - self.go_board_display.winfo_rooty()
+        x,y = self.__coordsToGameCoords(c_x, c_y)
+        self.pygo.Game.clearManual(x,y)
+
 
     def freeze(self, event=None) -> None:
         self.pygo.freeze()
@@ -184,6 +238,10 @@ class PyGOTk:
         else:
             # game is currently not started
             logging.warning('Detect the board before starting the game!')
+
+    def onClearManualAll(self) -> None:
+        self.pygo.Game.clearManualAll()
+
 
     def GamePause(self) -> None:
         Signals.emit(GamePause)
