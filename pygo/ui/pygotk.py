@@ -29,7 +29,7 @@ class PyGOTk:
 
     def __init__(self, pygo: PyGO = None):
         logging.basicConfig()
-        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.INFO)
 
 
         if pygo is None:

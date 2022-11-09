@@ -275,7 +275,8 @@ class Game(DebugInfoProvider, Timing):
             Manual override for single moves
             Fallback in case some detection does not work als intended
         '''
-        if self.state[x,y] != 2:
+        # either add or remove stone
+        if color == 2 or self.state[x,y] != 2:
             # delete existing move
             logging.debug("Remove Stone at {} {}".format(x,y))
             if x == self.last_x and y == self.last_y:
@@ -285,6 +286,12 @@ class Game(DebugInfoProvider, Timing):
             
             #clear move
             self.manualMoves.append([2, (x,y)])
+        elif color in [0,1]:
+            c = color
+            self._setStone(x, y, N2C(c))
+            #save move in overwrite state
+            self.manualMoves.append([c, (x,y)])
+            logging.debug("Manual overwrite: Adding {} Stone at {} {}".format(N2C(c), x+1,y+1))
         else:
             # add stone
             c = self.nextMove()

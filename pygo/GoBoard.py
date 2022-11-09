@@ -108,26 +108,6 @@ class GoBoard(DebugInfoProvider, Timing):
         dst2 = bg+ dst
         return dst2
 
-    def imgToPatches(self, img : Image) -> List[Image]:
-        patches = []
-        for path in zip(self.cl2, self.ct2, self.cr2, self.cb2):
-            #l,r,t,b):
-            l1 = np.array([path[0][0], path[1][1]])
-            l2 = np.array([path[2][0], path[1][1]])
-            l3 = np.array([path[2][0], path[3][1]])
-            l4 = np.array([path[0][0], path[3][1]])
-            p = np.array([l1,l2,l3,l4]).astype(int)
-
-            patch = self.crop(p, img)
-
-            # fail for false calib -> None
-            if not np.all(np.array(patch.shape) > 0):
-                return None
-
-            patch =  transform.resize(patch, (32,32),  anti_aliasing=True)
-            patches.append(patch)
-        return patches
-
     def line_point_distance(self, point, line_s, line_e):
         '''
         '''
@@ -150,7 +130,7 @@ class GoBoard(DebugInfoProvider, Timing):
         else:
             return None
 
-    def get_corners(self, vp1: Point2D, vp2: Point2D, img: Image) -> NDArray:
+    def get_corners(self, vp1: Optional[Point2D], vp2: Optional[Point2D], img: Image) -> NDArray:
         '''
         vp1: 2d vanishing point
         vp2: 2d vanishing point
@@ -181,9 +161,6 @@ class GoBoard(DebugInfoProvider, Timing):
             if area > min_area:
 
                 #somethimes the contour has small dents .. approximate till we have four corners left
-                # to demonstrate the impact of contour approximation, let's loop
-                # over a number of epsilon sizes
-
                 for eps in np.linspace(0.001, 0.05, 10):
                     # approximate the contour
                     peri = cv2.arcLength(cnt, True)
@@ -241,32 +218,37 @@ class GoBoard(DebugInfoProvider, Timing):
                         #plt.show()
                         #print('skip')
                         continue
+                    if vp1 is not None and vp2 is not None:
+                        d1 = min(self.line_point_distance(vp1, leftmost, topmost), 
+                                self.line_point_distance(vp2, leftmost, topmost))
+                        d2 = min(self.line_point_distance(vp1, rightmost, bottommost),
+                                self.line_point_distance(vp2, rightmost, bottommost))
 
-                    d1 = min(self.line_point_distance(vp1, leftmost, topmost), 
-                            self.line_point_distance(vp2, leftmost, topmost))
-                    d2 = min(self.line_point_distance(vp1, rightmost, bottommost),
-                            self.line_point_distance(vp2, rightmost, bottommost))
+                        d3 = min(self.line_point_distance(vp2, rightmost, topmost),
+                                self.line_point_distance(vp1, rightmost, topmost))
+                        d4 = min(self.line_point_distance(vp2, leftmost, bottommost),
+                                self.line_point_distance(vp1, leftmost, bottommost))
 
-                    d3 = min(self.line_point_distance(vp2, rightmost, topmost),
-                            self.line_point_distance(vp1, rightmost, topmost))
-                    d4 = min(self.line_point_distance(vp2, leftmost, bottommost),
-                            self.line_point_distance(vp1, leftmost, bottommost))
+                        # best detection has minimal deviation from vp and least deviation 
+                        # from four corners area to poly area
 
-                    # best detection has minimal deviation from vp and least deviation 
-                    # from four corners area to poly area
+                        dist = d1 + d2 + d3 + d4
+                        if dist < min_dist:
+                            min_dist = dist
+                            #image = cv2.drawContours(img_out, contours, c, (0, 255, 0), 3)
+                            #cv2.imshow('',image)
+                            #cv2.waitKey(100)
 
-                    dist = d1 + d2 + d3 + d4
-                    if dist < min_dist:
-                        min_dist = dist
-                        #image = cv2.drawContours(img_out, contours, c, (0, 255, 0), 3)
-                        #cv2.imshow('',image)
-                        #cv2.waitKey(100)
-
-                        #best_image = image
-                        #best_cnt = cnt
-                        #print(area)
+                            #best_image = image
+                            #best_cnt = cnt
+                            #print(area)
+                            corners = [leftmost, topmost, rightmost, bottommost]
+                            corners_mat = np.array(corners)
+                    else:
+                        # fast version without vp check
                         corners = [leftmost, topmost, rightmost, bottommost]
                         corners_mat = np.array(corners)
+
         #if corners_mat is not None:
         #    plt.imshow(best_image)
         #    plt.scatter(corners_mat[:,0], corners_mat[:,1])
@@ -320,9 +302,11 @@ class GoBoard(DebugInfoProvider, Timing):
             #cv2.waitKey(500) 
             if corners is not None:
                 self.update_grid(img_bw, corners)
-                if self.check_patches_are_centered(img_bw):
-                    # we found a good solution
+                if self.check_board_alignment(img_bw):
                     break
+                #if self.check_patches_are_centered(img_bw):
+                    # we found a good solution
+                    #break
 
         #if corners is None:
         #    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
@@ -360,14 +344,15 @@ class GoBoard(DebugInfoProvider, Timing):
         img_gray = toYUVImage(img)[:,:,0]
         img_bw = self.binarizeImage(img, C=20)
 
-        try:
-            vp1, vp2 = self.get_vp(img_gray)
-        except NoVanishingPointsDetectedException:
-            return img
+        #try:
+        #    vp1, vp2 = self.get_vp(img_gray)
+        #except NoVanishingPointsDetectedException:
+        #    return img
 
         # assumption most lines in the image are from the go board -> vp give us the plane
         # the contour which belongs to those vp is the board
-        corners = self.detect_board_corners_fast(vp1, vp2, img)
+        #corners = self.detect_board_corners_fast(vp1, vp2, img)
+        corners = self.detect_board_corners_fast(None, None, img)
 
         img_ = img.copy()
         img_bw_ = toColorImage(img_bw)
@@ -432,6 +417,52 @@ class GoBoard(DebugInfoProvider, Timing):
         Signals.emit(OnBoardDetected, self.extract(img) , corners, self.H)
         Signals.emit(OnBoardGridSizeKnown, self.go_board_shifted)
 
+    def imgToPatches(self, img : Image) -> List[Image]:
+        patches = []
+        for path in zip(self.cl2, self.ct2, self.cr2, self.cb2):
+            #l,r,t,b):
+            l1 = np.array([path[0][0], path[1][1]])
+            l2 = np.array([path[2][0], path[1][1]])
+            l3 = np.array([path[2][0], path[3][1]])
+            l4 = np.array([path[0][0], path[3][1]])
+            p = np.array([l1,l2,l3,l4]).astype(int)
+
+            patch = self.crop(p, img)
+
+            # fail for false calib -> None
+            if not np.all(np.array(patch.shape) > 0):
+                return None
+
+            patch =  transform.resize(patch, (32,32),  anti_aliasing=True)
+            patches.append(patch)
+        return patches
+
+    def check_board_alignment(self, img:Image) -> bool:
+        cropped = self.extract_borderless(img)
+        # crop bordering lines
+        cw = int(self.cell_w //2)
+        ch = int(self.cell_h //2)
+        thresh, bw = cv2.threshold(toByteImage(cropped[ch:-ch,cw:-cw]), \
+                                0, \
+                                255, \
+                                cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        
+        sum_x = np.sum(bw,0)
+        sum_y = np.sum(bw,1)
+        #only split by 17 as we removed the border fields
+        px = np.array_split(sum_x, 17)
+        py = np.array_split(sum_y, 17)
+        idx_x = [np.argmax(x) for x in px]
+        idx_y = [np.argmax(x) for x in py]
+
+
+        if np.std(idx_x) > 1.2 or np.std(idx_y) > 1.2:
+            logging.debug("std x: {}".format(np.std(idx_x)))
+            logging.debug("std y: {}".format(np.std(idx_y)))
+            return False
+        else:
+            return True
+
 
 
     def check_patches_are_centered(self, img: Image) -> bool:
@@ -465,7 +496,17 @@ class GoBoard(DebugInfoProvider, Timing):
             return False
         else:
             return True
+
  
+    def extract_borderless(self, img):
+        self.current_unwarped = img
+        img_w = cv2.warpPerspective(img, np.linalg.inv(self.H), self.img_limits)
+        img_w, (x,y) = mask_board(img_w, self.grid, self.border_size)
+        bs = self.border_size
+        img_w = img_w[bs:-bs, bs:-bs]
+        return img_w
+ 
+
     def extract(self, img):
         self.current_unwarped = img
         img_w = cv2.warpPerspective(img, np.linalg.inv(self.H), self.img_limits)

@@ -1,14 +1,18 @@
 from pygo.core import PyGO
-from pygo.pygotk import PyGOTk
 
 import cProfile
-
+import pstats
 
 if __name__ == "__main__":
     pygo = PyGO()
     #ui = PyGOTk(pygo=pygo)
     #ui.run()
-    cProfile.run('pygo.loopDetect10x()')
+
+    with cProfile.Profile() as pr:
+        pygo.loop10x()
+        pr.create_stats()
+        pr.dump_stats('profile_view.stats')
+    #cProfile.run('pygo.loopDetect10x()')
     #ui.quit()
     #ui.run()
     #pygo.loop()

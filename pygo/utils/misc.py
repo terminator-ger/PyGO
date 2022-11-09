@@ -163,7 +163,7 @@ def mask_board(image, go_board, border_size=15):
     else:
         rect = cv2.boundingRect(mask.astype(np.uint8))
     x,y,w,h = rect
-    cropped_img = image[y:y+h, x:x+w].copy()
+    cropped_img = image[y:y+h, x:x+w]#.copy()
     return cropped_img, (x,y)
 
 def find_src_pt(go, lines):

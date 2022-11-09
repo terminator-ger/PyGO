@@ -82,7 +82,10 @@ class PyGO(Timing):
 
     def loop10x(self) -> None:
         for _ in range(10):
+            img_cam = self.input_stream.read()
+        for _ in range(10):
             self.run_once()
+            print(self.input_is_frozen)
 
     def loopDetect10x(self) -> None:
         for _ in range(10):
