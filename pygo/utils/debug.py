@@ -1,14 +1,11 @@
-from optparse import Option
-from typing import Optional
-from xmlrpc.client import Boolean
 import cv2
+import pdb
+import logging
+import numpy as np
 
 from typing import Optional, List, Dict, Tuple
 from enum import Enum
-import numpy as np
-import pdb
-import time
-import logging
+
 from pygo.utils.misc import cv2Input, flattenList
 from pygo.utils.typing import Image
 
@@ -26,7 +23,7 @@ class DebugInfoProvider:
     def disable(self, key: str) -> None:
         self.available_debug_info[key] = False
 
-    def debugStatus(self, key: str) -> Boolean:
+    def debugStatus(self, key: str) -> bool:
         return self.available_debug_info[key.name]
 
     def showDebug(self, key: str, img: Image) -> None:

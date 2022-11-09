@@ -57,7 +57,6 @@ class PyGOTk:
 
         filemenu = tk.Menu(self.menubar, tearoff=0)
         filemenu.add_command(label="Save", command=self.onFileSave)
-        filemenu.add_command(label="Select Input", command=self.onInputChange)
         filemenu.add_command(label="Settings", command=self.onSettings)
         filemenu.add_command(label="Exit", command=self.onFileExit)
 
@@ -276,83 +275,41 @@ class PyGOTk:
 
         if self.video_str:
             self.pygo.input_stream.set_input_file_stream(self.video_str)
-            self.Tbox.delete('1.0', tk.END)
-            self.Tbox.insert(tk.END, self.video_str)
             self.onGameNew()
 
-    def onInputChange(self) -> None:
 
-        self.input_window = tk.Toplevel(self.root)
-        self.input_window.title('Select input')
-        self.input_window.grid()
-        self.video_str = tk.StringVar()
+    def onInputDeviceChanged(self, *args):
+        #dev = self.input_devices[self.v.get()]
+        dev = args[0]
+        if '/dev/video' in dev:
+            #opencv only uses the number
+            dev_id = int(dev[-1])
+            self.pygo.input_stream.set_input_file_stream(dev_id)
+            Signals.emit(GameReset, 19)
+        else:
+            self.onVideoFileOpen()
 
-        packlist = []
-        self.v = tk.IntVar()
-
-        self.v.set(0)  # initializing the choice, i.e. Python
-        video_ports = self.pygo.input_stream.getWorkingPorts()
-        video_ports.append('Select Video')
-
-        self.input_devices = []
-        for i,port in enumerate(video_ports):
-            if port != "Select Video": 
-                self.input_devices.append(('/dev/video{}'.format(port), i))
-            else:
-                self.input_devices.append((port, i))
-
-        self.Tbox = tk.Text(self.input_window, height=1, width=30)
-        self.Tbox.insert(tk.END,'Select Video')
-        btn = tk.Button(self.input_window, 
-                        command=self.onVideoFileOpen)
-        
-
-        packlist.append(self.Tbox)
-        packlist.append(btn)
-
-
-        tk.Label(self.input_window, 
-                text="Choose Input",
-                justify = tk.LEFT,
-                padx = 20).pack()
-
-        for txt, val in self.input_devices:
-            tk.Radiobutton(self.input_window, 
-                        text=txt,
-                        padx = 20, 
-                        variable=self.v, 
-                        command=self.onInputDeviceChanged if txt != 'Select Video' else self.onVideoFileOpen,
-                        value=val).pack(anchor=tk.W)
-
-        [p.pack() for p in packlist]
-
-
-    def onInputDeviceChanged(self):
-        dev, i = self.input_devices[self.v.get()]
-        self.pygo.input_stream.set_input_file_stream(dev)
-        Signals.emit(GameReset, 19)
 
 
     def onSettings(self):
         self.settings_window = tk.Toplevel(self.root)
         self.settings_window.title('Settings')
         self.settings_window.grid()
-        packlist = []
         btn1 = tk.Checkbutton(self.settings_window, 
                                 text='Allow undoing moves during recording',
                                 variable=self.settings['AllowUndo'],
                                 onvalue=True, 
                                 offvalue=False)
-        packlist.append(btn1)
-
-        lbl1 = tk.Label(self.settings_window, text="Motion Detection Agressiveness")
-        packlist.append(lbl1)
+        btn1.grid(column=0, row=0)
 
         sep = ttk.Separator(self.settings_window, orient='horizontal')
-        packlist.append(sep)
+        sep.grid(column=0, row=1, sticky='ew')
+
+        lbl1 = tk.Label(self.settings_window, text="Motion Detection Agressiveness")
+        lbl1.grid(column=0, row=2)
 
         switch_frame = tk.Frame(self.settings_window)
-        packlist.append(switch_frame)
+        switch_frame.grid(column=0, row=3)
 
         low_button = tk.Radiobutton(switch_frame, 
                                     text="Low", 
@@ -375,8 +332,33 @@ class PyGOTk:
         low_button.pack(side="left")
         med_button.pack(side="left")
         high_button.pack(side="left")
-        for item in packlist:
-            item.pack()
+
+
+        sep = ttk.Separator(self.settings_window, orient='horizontal')
+        sep.grid(column=0, row=4, sticky='ew')
+
+        lbl2 = tk.Label(self.settings_window, text="Video Input")
+        lbl2.grid(column=0, row=5)
+
+
+        self.v = tk.StringVar()
+        self.input_devices = []
+        video_ports = self.pygo.input_stream.getWorkingPorts()
+        for port in video_ports:
+            if port != "Select Video": 
+                self.input_devices.append('/dev/video{}'.format(port))
+        self.input_devices.append('Select Video')
+
+        self.v.set(self.pygo.input_stream.current_port)
+
+        dropdown = tk.OptionMenu(
+            self.settings_window,
+            self.v,
+            *self.input_devices,
+            command=self.onInputDeviceChanged
+        ) 
+        dropdown.grid(column=0, row=6)
+
 
         self.settings_window.protocol("WM_DELETE_WINDOW", self.on_settings_closing)
         Signals.emit(OnSettingsChanged, self.settings)
@@ -406,8 +388,6 @@ class PyGOTk:
     def onBoardDetect(self) -> None:
         # ask for board detection
         Signals.emit(DetectBoard, self.pygo.img_cam)
-        #self.pygo.Board.calib(self.pygo.img_cam)
-        #self.updateGrid()
 
     def onFileOpen(self) -> None:
         return

@@ -18,6 +18,7 @@ class Webcam:
         self.default = default
         self.dx = 0
         self.dy = 0
+        self.current_port = None
         self.__is_file = False
         self.__is_paused = False
         self.__update_ports()
@@ -33,15 +34,16 @@ class Webcam:
 
 
     def set_input_file_stream(self, file : str = None) -> None:
+
         #check wether we have a webcam or a file
         if os.path.exists(file):
             self.__is_file = True
         else:
             self.__is_file = False
 
+        self.cam.release()
         self.cam = cv2.VideoCapture(file)
-        #self.cam = FileVideoStream(file).start()
-        #time.sleep(1.0)
+        self.current_port = file
 
         width = self.cam.get(cv2.CAP_PROP_FRAME_WIDTH)
         height= self.cam.get(cv2.CAP_PROP_FRAME_HEIGHT)
@@ -141,7 +143,6 @@ class Webcam:
                     if w*h > best_resolution:
                         best_resolution = w*h
                         self.default_port = dev_port
-                        print(dev_port)
                 else:
                     #print("Port %s for camera ( %s x %s) is present but does not reads." %(dev_port,h,w))
                     self.available_ports.append(dev_port)
@@ -152,5 +153,4 @@ class Webcam:
         if port is not None:
             print("Using port {}".format(port))
             self.cam = cv2.VideoCapture(port)
-            #self.cam = FileVideoStream(port).start()
-            #time.sleep(5.0)
+            self.current_port = '/dev/video{}'.format(port)
