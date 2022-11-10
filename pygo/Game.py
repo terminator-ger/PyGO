@@ -1,7 +1,7 @@
-import enum
-from os import remove
+import cv2
+import logging
+
 import random
-from re import A
 import numpy as np
 
 from enum import Enum, auto
@@ -10,15 +10,12 @@ from playsound import playsound
 
 from sgfmill import sgf, boards, sgf_moves
 from typing import List, TextIO, Tuple, Optional
-import pdb
-from pudb import set_trace
-import cv2
-import logging
 
 from pygo.utils.image import toByteImage
 from pygo.utils.color import N2C, C2N, COLOR, CNOT
 from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
 from pygo.utils.typing import Move, NetMove, GoBoardClassification
+from pygo.utils.misc import coordinate_to_letter, pygo_to_go_coord_sys, sgfmill_to_pygo_coord_sys
 from pygo.Signals import *
 
 
@@ -30,7 +27,8 @@ class GameState(Enum):
 class MoveValidationAlg(Enum):
     NONE = auto()
     ONE_MOVE = auto()
-    MULTI_MOVE = auto()
+    TWO_MOVES = auto()
+    MULTI_MOVES = auto()
 
 
 class Game(DebugInfoProvider, Timing):
@@ -51,236 +49,136 @@ class Game(DebugInfoProvider, Timing):
         self.game_tree = None
         self.manualMoves = []
         self.state_history = []
+        self.cur_time = None
 
         self.settings  = {
             'AllowUndo': False,
-            'MoveValidation': MoveValidationAlg.ONE_MOVE
+            'MoveValidation': MoveValidationAlg.TWO_MOVES
         }
 
         Signals.subscribe(OnSettingsChanged, self.settings_updated)
-        Signals.subscribe(GamePauseResume, self.__toggle_pause_game)
+        Signals.subscribe(GameRun, self.__game_run)
+        Signals.subscribe(GamePause, self.__game_pause)
+        Signals.subscribe(GameReset, self.__resetGameState)
+
         Signals.subscribe(GameNew, self.__startNewGame)
         Signals.subscribe(GameTreeBack, self.__game_tree_back)
         Signals.subscribe(GameTreeForward, self.__game_tree_forward)
 
+    #######################################
+    # Temporal Manipulation Routines
+    #######################################
+
+    def __game_tree_back(self, *args):
+        if self.GS == GameState.NOT_STARTED:
+            return
+
+        if self.GS == GameState.RUNNING:
+            self.GS = GameState.PAUSED
+            logging.info("Paused Game")
+
+        last = self.game_tree.get_last_node().parent
+
+        if last.get_move() != (None, None):
+            n, (mx,my) = last.get_move()
+            x,y = sgfmill_to_pygo_coord_sys((mx,my))
+            self.state[x,y] = C2N('E')
+            
+            if last.parent.parent is not None:
+                n, (mx,my) = last.parent.get_move()
+                x,y = sgfmill_to_pygo_coord_sys((mx,my))
+            else:
+                n = 'E'
+                x = -1
+                y = -1
+
+            if last.parent is not None:
+                last.reparent(last.parent, 1)
+                last.parent.new_child(0)
+ 
+            self.last_color = C2N(n)
+            self.last_x = x
+            self.last_y = y
+
+            Signals.emit(UpdateLog, self.get_move_list())
+
+
+    def __game_tree_forward(self, *args):
+        if self.GS == GameState.NOT_STARTED:
+            return
+
+        if self.GS == GameState.RUNNING:
+            self.GS = GameState.PAUSED
+            logging.info("Paused Game")
+
+        par_node = self.game_tree.get_last_node().parent
+        
+        # moving back in time removes moves from the leftmost variation
+        if len(par_node) > 1:
+            next_moves = par_node[1]
+            dead_end = par_node[0]
+            dead_end.delete()
+
+            # delete the other node as we would generate multiple 
+            # dead ends skipping fwd and bwd
+            n, (mx,my) = next_moves.get_move()
+            x,y = sgfmill_to_pygo_coord_sys((mx,my))
+
+            self.state[x,y] = C2N(n)
+            self.last_color = C2N(n)
+            self.last_x = x
+            self.last_y = y
+            next_moves.reparent(par_node, 0)
+            Signals.emit(UpdateLog, self.get_move_list())
+
+
     def isPaused(self):
         return True if self.GS == GameState.PAUSED else False
 
-    def settings_updated(self, args):
-        new_settings = args[0]
-        for k in self.settings.keys():
-            if k in new_settings.keys():
-                self.settings[k] = new_settings[k].get()
-
-
-    def getCurrentState(self) -> GoBoardClassification:
-        return self.state
 
     def __startNewGame(self, *args) -> None:
         self.startNewGame()
 
-    def startNewGame(self, size=19) -> None:
-        self.game_tree = sgf.Sgf_game(size=size)
+
+    def __game_pause(self, *args):
+        logging.info("Paused Game")
+        self.GS = GameState.PAUSED
+
+
+    def __game_run(self, *args):
+        logging.info("Resume Game")
         self.GS = GameState.RUNNING
+
+
+    def __resetGameState(self, *args) -> None:
+        logging.debug("GAME: Reset Game state")
+        size = 19
+        self.game_tree = sgf.Sgf_game(size=size)
+        self.game_tree.extend_main_sequence()
+        self.GS = GameState.NOT_STARTED
         self.state = np.ones((self.board_size, self.board_size), dtype=int)*2
         self.board_size = size
         self.last_x = -1
         self.last_y = -1
         self.last_color = 2
         self.manualMoves = []
-       
-    def saveGame(self, file: TextIO = None) -> None:
-        if self.GS == GameState.RUNNING:
-            if file is None:
-                cur_time = datetime.now().strftime("%d-%m-%Y_%H%M%S")
-                file = '{}.sgf'.format(cur_time)
-                with open(file, 'wb') as f:
-                    f.write(self.game_tree.serialise())
-            else:
-                file.write(self.game_tree.serialise())
-
-            self.GS = GameState.NOT_STARTED
-            self.game_tree = None
-
-    def _test_set(self, stone, coords) -> None:
-        x = coords[0]
-        y = coords[1]
-        c_str = stone
-
-        self.game_tree.get_last_node().set_move(c_str.lower(),(x,y))
-        self.game_tree.extend_main_sequence()
-        self.last_x = x
-        self.last_y = y
-        logging.info('{}: {}-{}'.format(c_str, x+1, y+1))
-        self.state[x,y] = C2N(c_str)
-        self.last_color = C2N(c_str)
-
-    def nextMove(self) -> Optional[int]:
-        if self.last_color == 0:
-            return 1
-        elif self.last_color == 1:
-            return 0
-        else:
-            #upon init black starts
-            # TODO: unless we have handicap
-            return 1
 
 
-    def updateStateNoChecks(self, state) -> NetMove:
-        state = state.reshape(19,19)
-        idx = np.argwhere(np.abs(self.state-state)>0)
-        if len(idx) > 0:
-            x = idx[0,0]
-            y = idx[0,1]
-            c = state[x,y]
-            rnd = random.randint(1,5) 
-            playsound('sounds/stone{}.wav'.format(rnd), block=False)
-            c_str = N2C(c)
+    def startNewGame(self, size=19) -> None:
+        logging.debug("GAME: Starting new Game")
+        self.__resetGameState()
+        self.cur_time = datetime.now().strftime("%d-%m-%Y")
 
-            print('{}: {}-{}'.format(c_str, x+1, y+1))
-            self.last_x = x
-            self.last_y = y
-            self.state = state
-            self.last_color = c
-            return [c_str.lower(), x, y]
+        self.GS = GameState.RUNNING
+        Signals.emit(UpdateLog, self.get_move_list())
 
-    def applyManualMoves(self, state: GoBoardClassification ) -> GoBoardClassification:
-        for (c, (x,y)) in self.manualMoves:
-            state[x,y] = c
-        return state
-
-    def _unravel(self, x):
-        return x.reshape(self.board_size, self.board_size)
-
-    def updateState(self, state) -> None:
-        '''
-        input detected state from classifier
-        '''
-        state = self.applyManualMoves(self._unravel(state))
-        if self.GS == GameState.RUNNING:
-            self.updateStateWithChecks(state)
-            if not np.array_equal(self.state, state):
-                # run a second time in case we have two moves 
-                self.updateStateWithChecks(state)
-
-        elif self.GS == GameState.PAUSED:
-            return
-        elif self.GS == GameState.NOT_STARTED:
-            self.updateStateNoChecks(state)
-        else:
-            logging.error("Unkown Game State")
-            raise RuntimeError("Unkonwn Game State")
-
-
-    def whichMovesAreInTheGameTree(self, state) -> Tuple[List[Move],List[Move]]:
-        idx = np.argwhere(np.abs(self.state-state)>0)
-        if self.GS == GameState.RUNNING:
-            X = idx[:,0]
-            Y = idx[:,1]
-            isInTree = []
-            notInTree = []
-            for i in range(len(X)):
-                x = X[i]
-                y = Y[i]
-                c = state[x,y]
-                c_str = N2C(c)
-                seq = self.game_tree.get_main_sequence()[:-2]
-                for node in seq:
-                    if node.properties()[-1] == c_str and (x,y) == node.get(c_str):
-                        isInTree.append((c_str, (x,y)))
-                        break
-                # not found
-                notInTree.append((c_str,(x,y)))
-            return (isInTree, notInTree)
-        else:
-            return ([],[])
-
-    def _check_handicap(self, newState) -> NetMove:
-
-        isInTree, notInTree = self.whichMovesAreInTheGameTree(newState)
-        # we just initialized a new game we could have handicap stones
-        # all black and on the defined positions
-        handicap_positions = [(3,3), (3,15), (15,3), (15,15), 
-                              (3,9),  (9,3), (15,9), (9, 15), 
-                              (9,9)]
-        BoardSetup = boards.Board(self.board_size)
-        
-        if all([x[0]=='B' for x in notInTree]) and\
-           all([x[1] in handicap_positions for x in notInTree]):
-            #self.sgf_node.set("HA", len(notInTree))
-            moves_black = []
-            moves_white = []
-            for c_str, (x,y) in notInTree:
-                self.state[x,y] = C2N("B")
-                moves_black.append((x,y))
-
-            BoardSetup.apply_setup(moves_black, moves_white, [])
-            sgf_moves.set_initial_position(self.game_tree, BoardSetup)
-
-            #self.sgf_node.set("AB", moves)
-            self.last_color = C2N("B")
-
-
-    
-    def updateStateWithChecks(self, state) -> None:
-        if self.last_color == 2:
-            self._check_handicap(state)
-        
-        if np.array_equal(state, self.state):
-            logging.debug('No Difference found')
-            return
-        
-        if self.settings['MoveValidation'] == MoveValidationAlg.ONE_MOVE:
-            state = self._simple_move_validity_check(state)
-        elif self.settings['MoveValidation'] == MoveValidationAlg.MULTI_MOVE:
-            state = self._move_validity_check(state)
-        else:
-            pass
-
-        logging.debug2(state.reshape(19,19))
-
-        isInTree, notInTree = self.whichMovesAreInTheGameTree(state)
-
-        for (c_str, (x,y)) in notInTree:
-            if c_str !='E':
-                logging.debug('Adding {} at {} {}'.format(c_str, x, y))
-                self._setStone(x, y, c_str)
-
-        #for (c_str, (x,y)) in isInTree:
-            if c_str == 'E':
-                logging.debug('Removing {} at {} {}'.format(c_str, x, y))
-                self._captureStone(x, y)
-
-        
-    def setManual(self, x:int ,y:int) -> None:
-        ''' 
-            Manual override for single moves
-            Fallback in case some detection does not work als intended
-        '''
-        if self.state[x,y] != 2:
-            # delete existing move
-            logging.debug("Remove Stone at {} {}".format(x,y))
-            if x == self.last_x and y == self.last_y:
-                # last move was probably a false detection
-                # reset last color
-                self._undoLastMove(x,y,None)
-            
-            #clear move
-            self.manualMoves.append([2, (x,y)])
-        else:
-            # add stone
-            c = self.nextMove()
-            self._setStone(x, y, N2C(c))
-            #save move in overwrite state
-            self.manualMoves.append([c, (x,y)])
-            logging.debug("Manual overwrite: Adding {} Stone at {} {}".format(N2C(c), x+1,y+1))
-        return self.applyManualMoves(self.state)
 
     def undo(self) -> None:
         '''
         external function to undo
         '''
         self._undoLastMove(self.last_x, self.last_y, self.last_color)
+
 
     def _undoLastMove(self, x:int, y:int, c_str:str) -> None:
         if self.GS == GameState.RUNNING:
@@ -302,90 +200,113 @@ class Game(DebugInfoProvider, Timing):
             self.last_y = y
 
 
-    def __toggle_pause_game(self, *args):
-        if self.GS == GameState.RUNNING:
-            logging.info("Paused Game")
-            self.GS = GameState.PAUSED
-        elif self.GS == GameState.PAUSED:
-            logging.info("Resume Game")
-            self.GS = GameState.RUNNING
+    #######################################
+    # Manual Manipulation Routines
+    #######################################
 
-    def __game_tree_back(self, *args):
-        if self.GS == GameState.RUNNING:
-            self.GS = GameState.PAUSED
-            logging.info("Paused Game")
+    def setManual(self, x:int ,y:int, color:Optional[int]=None) -> None:
+        ''' 
+            Manual override for single moves
+            Fallback in case some detection does not work als intended
+        '''
+        # either add or remove stone
+        if color == 2 or self.state[x,y] != 2:
+            # delete existing move
+            logging.debug("Remove Stone at {} {}".format(x,y))
+            if x == self.last_x and y == self.last_y:
+                # last move was probably a false detection
+                # reset last color
+                self._undoLastMove(x,y,None)
+            
+            #clear move
+            self.manualMoves.append([2, (x,y)])
+        elif color in [0,1]:
+            c = color
+            self._setStone(x, y, N2C(c))
+            #save move in overwrite state
+            self.manualMoves.append([c, (x,y)])
+            logging.debug("Manual overwrite: Adding {} Stone at {} {}".format(N2C(c), x+1,y+1))
+        else:
+            # add stone
+            c = self.nextMove()
+            self._setStone(x, y, N2C(c))
+            #save move in overwrite state
+            self.manualMoves.append([c, (x,y)])
+            logging.debug("Manual overwrite: Adding {} Stone at {} {}".format(N2C(c), x+1,y+1))
+        return self.applyManualMoves(self.state)
 
-        last = self.game_tree.get_last_node().parent
 
-        if last.get_move() != (None, None):
-            n, (x,y) = last.get_move()
-            self.state[x,y] = C2N('E')
+    def clearManual(self, x:int, y:int) -> None:
+        del_move = None
+        for c,(x_,y_) in self.manualMoves:
+            if x_ == x and y_ == y:
+                del_move = [c, (x_,y_)]
+        if del_move is not None:
+            self.manualMoves.remove(del_move)
 
-            if last.parent:
-                n, (x,y) = last.parent.get_move()
-            else:
-                n = 'E'
-                x = -1
-                y = -1
-            self.last_color = C2N(n)
+
+    def clearManualAll(self) -> None:
+        self.manualMoves = []
+
+
+    def applyManualMoves(self, state: GoBoardClassification ) -> GoBoardClassification:
+        for (c, (x,y)) in self.manualMoves:
+            state[x,y] = c
+        return state
+
+
+
+    #######################################
+    # Evaluation of moves
+    #######################################
+
+    def updateStateNoChecks(self, state) -> NetMove:
+        state = state.reshape(19,19)
+        idx = np.argwhere(np.abs(self.state-state)>0)
+        if len(idx) > 0:
+            x = idx[0,0]
+            y = idx[0,1]
+            c = state[x,y]
+            rnd = random.randint(1,5) 
+            playsound('sounds/stone{}.wav'.format(rnd), block=False)
+            c_str = N2C(c)
+
+            print('{}: {}-{}'.format(c_str, x+1, y+1))
             self.last_x = x
             self.last_y = y
-            last.reparent(last.parent, 1)
-            last.parent.new_child(0)
+            self.state = state
+            self.last_color = c
+            return [c_str.lower(), x, y]
 
-    
-    def __game_tree_forward(self, *args):
-        if self.GS == GameState.RUNNING:
-            self.GS = GameState.PAUSED
-            logging.info("Paused Game")
-
-        cur_node = self.game_tree.get_last_node().parent
-        # moving back in time removes moves from the leftmost variation
-        if len(cur_node) >=1:
-            next_moves = cur_node[1]
-            #next_moves = self.game_tree.get_main_sequence_below(cur_node[1])
-            n, (x,y) = next_moves.get_move()
-            self.state[x,y] = C2N(n)
-            self.last_color = C2N(n)
-            self.last_x = x
-            self.last_y = y
-            next_moves.reparent(cur_node, 0)
- 
 
     def _setStone(self, x:int, y:int, c_str:str) -> None:
         c = C2N(c_str)
-        self.game_tree.get_last_node().set_move(c_str.lower(),(x,y))
+        
+        # sgf mill accepts points as (row, col) with 
+        # a coordinate systems used on go board not in sgf (inverted y-axis!)
+
+        mill_x, mill_y = (self.board_size-y), x
+
+        #import pdb
+        #pdb.set_trace()
+        self.game_tree.get_last_node().set_move(c_str.lower(),(mill_x, mill_y))
         self.game_tree.extend_main_sequence()
-        logging.info('{}: {}-{}'.format(c_str, x+1, y+1))
+
+        x_, y_ = pygo_to_go_coord_sys((x,y))
+        logging.info('{}: {}-{}'.format(c_str, x_, y_))
         self.last_x = x
         self.last_y = y
         self.state[x,y] = c
         self.last_color = c
         if self.GS == GameState.RUNNING:
-            Signals.emit(GameNewMove, (c_str, x,y))
+            Signals.emit(UpdateLog, self.get_move_list())
+
 
     def _captureStone(self, x: int, y: int) -> None:
-        logging.info('Capture: {}-{}'.format(x+1, y+1))
+        x_, y_ = pygo_to_go_coord_sys((x,y))
+        logging.info('Capture: {}-{}'.format(x_, y_))
         self.state[x,y] = 2
 
-    def __getNeighbours(self, state: GoBoardClassification, 
-                            x:int, 
-                            y:int, 
-                            visited: List[Tuple[int,int]]) -> Tuple[List[Tuple[int,int]], List[Tuple[int,int]]]:
-        dx = [-1, 1, 0, 0]
-        dy = [ 0, 0,-1, 1]
-        other_nbr = []
-        same_nbr = []
-        cur_color = state[x,y]
-        for _dx, _dy in zip(dx,dy):
-            __x = max(min(x+_dx, 0), self.board_size)
-            __y = max(min(y+_dy, 0), self.board_size)
-            if state[__x, __y] != 2 and (__x, __y) not in visited:
-                if state[__x,__y] == cur_color:
-                    same_nbr.append((__x, __y))
-                else:
-                    other_nbr.append((__x, __y))
-        return (other_nbr, same_nbr)
 
     def __countLiberties(self, state: GoBoardClassification):
         # make inv binary free fields are 1 occupied are 0
@@ -394,9 +315,10 @@ class Game(DebugInfoProvider, Timing):
 
         B[state==COLOR.BLACK.value] = 1
         W[state==COLOR.WHITE.value] = 1
-        #pdb.set_trace()
+        
         _, markersB = cv2.connectedComponents(toByteImage(B), connectivity=4)
         _, markersW = cv2.connectedComponents(toByteImage(W), connectivity=4)
+
         idsB = np.unique(markersB)
         idsW = np.unique(markersW)
         # remove 0 group
@@ -425,6 +347,7 @@ class Game(DebugInfoProvider, Timing):
         markersW -= 1
         return markersB, markersW, count_b, count_w
 
+
     def _simple_move_validity_check(self, newState: GoBoardClassification) -> GoBoardClassification:
         '''
             We reduce the ammount of false positive by checking for previously placed stones
@@ -432,12 +355,11 @@ class Game(DebugInfoProvider, Timing):
 
         '''
         isInTree, notInTree = self.whichMovesAreInTheGameTree(newState)
-
+        
         added_next_color = [x for x in notInTree if x[0] not in ['E', N2C(self.last_color)]]
         added_old_color = [x for x in notInTree if x[0] == N2C(self.last_color)]
-        removed_old_color = [x for x in notInTree if x[0] == 'E' and self.state[x[1][0],x[1][1]] == self.last_color]
         removed_new_color = [x for x in notInTree if x[0] == 'E' and self.state[x[1][0],x[1][1]] == CNOT(self.last_color)]
-
+        
         # apply add stone to temp state
         working_state = self.state.copy()
         if len(added_next_color) == 1:
@@ -459,21 +381,7 @@ class Game(DebugInfoProvider, Timing):
             count = []
             markers = []
 
-        #for (c_str, (x,y)) in removed_old_color:
-        #    id = old_markers[x,y]
-        #    liberties = count[id]
-        #    if liberties == 0:
-        #        working_state[x,y] = N2C("E")
-        #        # also check manual moves
-        #        if (c_str, (x,y)) in self.manualMoves:
-        #            logging.debug('Removing {}-{} {} from the manual moves'.format(c_str, x, y))
-        #            self.manualMoves.remove((c_str, (x,y)))
-        #    else:
-        #        working_state[x,y] = self.state[x,y]
-
-        # check not detected removals 
-        #markers, count = (old_markers_b, count_b) if added_next_color[0] == 'B' else (old_markers_w, count_w)
-        for groupId, cnt in enumerate(count): # zip(range(1, len(count)+1) ,count):
+        for groupId, cnt in enumerate(count): 
             if cnt == 0:
                 #remove group
                 idx = np.argwhere(markers == groupId)
@@ -495,12 +403,206 @@ class Game(DebugInfoProvider, Timing):
 
         return working_state
 
+
+    def updateState(self, state) -> None:
+        '''
+        input detected state from classifier
+        '''
+        state = self.applyManualMoves(self._unravel(state))
+        if self.GS == GameState.RUNNING:
+            self.updateStateWithChecks(state)
+
+            if self.settings['MoveValidation'] == MoveValidationAlg.TWO_MOVES:
+                # run a second time in case we have two moves 
+                if not np.array_equal(self.state, state):
+                    self.updateStateWithChecks(state)
+
+        elif self.GS == GameState.PAUSED:
+            return
+        elif self.GS == GameState.NOT_STARTED:
+            self.updateStateNoChecks(state)
+        else:
+            logging.error("Unkown Game State")
+            raise RuntimeError("Unkonwn Game State")
+
+
+    def whichMovesAreInTheGameTree(self, state: GoBoardClassification) -> Tuple[List[Move],List[Move]]:
+        '''
+            Splits the classifiers state into moves which are allready in the game tree
+            (played and stored) and new moves
+        '''
+        idx = np.argwhere(np.abs(self.state-state)>0)
+        X = idx[:,0]
+        Y = idx[:,1]
+        isInTree = []
+        notInTree = []
+        for i in range(len(X)):
+            x = X[i]
+            y = Y[i]
+            c = state[x,y]
+            c_str = N2C(c)
+            seq = self.game_tree.get_main_sequence()[:-2]
+            for node in seq:
+                if node.properties()[-1] == c_str and (x,y) == node.get(c_str):
+                    isInTree.append((c_str, (x,y)))
+                    break
+            # not found
+            notInTree.append((c_str,(x,y)))
+        return (isInTree, notInTree)
+
+
+    def _check_handicap(self, newState) -> NetMove:
+        newState = newState.reshape(19,19)
+        isInTree, notInTree = self.whichMovesAreInTheGameTree(newState)
+        # we just initialized a new game we could have handicap stones
+        # all black and on the defined positions
+        handicap_positions = [(3,3), (3,15), (15,3), (15,15), 
+                              (3,9),  (9,3), (15,9), (9, 15), 
+                              (9,9)]
+        BoardSetup = boards.Board(self.board_size)
+
+        # we need black stones, more than one and only on start points 
+        if (all([x[0]=='B' for x in notInTree]) 
+            and all([x[1] in handicap_positions for x in notInTree])
+            and len([x[0]=='B' for x in notInTree]) > 1):
+
+            moves_black = []
+            moves_white = []
+            for c_str, (x,y) in notInTree:
+                if c_str == "B":
+                    self.state[x,y] = C2N("B")
+
+                    mill_x, mill_y = (self.board_size-y), x
+                    moves_black.append((mill_x,mill_y))
+
+            BoardSetup.apply_setup(moves_black, moves_white, [])
+            sgf_moves.set_initial_position(self.game_tree, BoardSetup)
+            self.game_tree.get_main_sequence()[0].set("HA", len(moves_black))
+            
+            # White starts
+            self.last_color = C2N("B")
+            Signals.emit(UpdateLog, self.get_move_list())
+        else:
+            logging.info('No handicap detected')
+            # start with black
+            self.last_color = C2N('W')
+
+    
+    def updateStateWithChecks(self, state) -> None:
+        if self.last_color == 2:
+            self._check_handicap(state)
+        
+        if np.array_equal(state, self.state):
+            logging.debug('No Difference found')
+            return
+        logging.debug2('before validity check') 
+        logging.debug2(state.reshape(19,19))
+        state = self._simple_move_validity_check(state)
+        logging.debug2('after validity check') 
+        logging.debug2(state.reshape(19,19))
+
+        isInTree, notInTree = self.whichMovesAreInTheGameTree(state)
+
+        for (c_str, (x,y)) in notInTree:
+            if c_str !='E':
+                logging.debug('Adding {} at {} {}'.format(c_str, x, y))
+                self._setStone(x, y, c_str)
+
+            if c_str == 'E':
+                logging.debug('Removing {} at {} {}'.format(c_str, x, y))
+                self._captureStone(x, y)
+
+
+
+    #######################################
+    # Miscellaneous
+    #######################################
+
     def print(self):
         root_tree = self.game_tree.get_main_sequence()
         for node in root_tree:
             print(node.get_move())
 
 
+    def settings_updated(self, args):
+        new_settings = args[0]
+        for k in self.settings.keys():
+            if k in new_settings.keys():
+                self.settings[k] = new_settings[k].get()
+
+
+    def getCurrentState(self) -> GoBoardClassification:
+        return self.state
+
+
+    def saveGame(self, file: TextIO = None) -> None:
+        if file is None:
+            cur_time = datetime.now().strftime("%d-%m-%Y_%H%M%S")
+            file = '{}.sgf'.format(cur_time)
+            with open(file, 'wb') as f:
+                f.write(self.game_tree.serialise())
+        else:
+            file.write(self.game_tree.serialise())
+
+
+    def _test_set(self, stone, coords) -> None:
+        x = coords[0]
+        y = coords[1]
+        c_str = stone
+
+        mill_x, mill_y = (self.board_size-y), x
+
+        self.game_tree.get_last_node().set_move(c_str.lower(),(mill_x,mill_y))
+        self.game_tree.extend_main_sequence()
+        self.last_x = x
+        self.last_y = y
+
+        x_, y_ = pygo_to_go_coord_sys((x,y))
+        logging.info('{}: {}-{}'.format(c_str, x_, y_))
+        self.state[x,y] = C2N(c_str)
+        self.last_color = C2N(c_str)
+
+
+    def nextMove(self) -> Optional[int]:
+        if self.last_color == 0:
+            return 1
+        elif self.last_color == 1:
+            return 0
+        else:
+            #upon init black starts
+            # TODO: unless we have handicap
+            return 0
+
+
+    def _unravel(self, x):
+        return x.reshape(self.board_size, self.board_size)
+
+
+    def get_move_list(self) -> List[str]:
+        moves = []
+        seq = self.game_tree.get_main_sequence()
+        handicap = self.game_tree.get_handicap()
+
+        if self.cur_time is not None:
+            moves.append('{}\n'.format(self.cur_time))
+            moves.append("===============")
+        
+        if handicap is not None and handicap > 1:
+            moves.append("Handicap +{}\n".format(handicap))
+        
+        for node in seq:
+            if node is not None:
+                mv = node.get_move()
+                if mv != (None, None):
+                    n, (x,y) = mv
+
+                    moves.append("{}: {}-{}\n".format(n.upper(), 
+                                                        coordinate_to_letter(y),
+                                                        x))
+
+        return moves
+
+ 
 
 
 
@@ -521,8 +623,24 @@ class Game(DebugInfoProvider, Timing):
 
 
 
-
-
+    def __getNeighbours(self, state: GoBoardClassification, 
+                            x:int, 
+                            y:int, 
+                            visited: List[Tuple[int,int]]) -> Tuple[List[Tuple[int,int]], List[Tuple[int,int]]]:
+        dx = [-1, 1, 0, 0]
+        dy = [ 0, 0,-1, 1]
+        other_nbr = []
+        same_nbr = []
+        cur_color = state[x,y]
+        for _dx, _dy in zip(dx,dy):
+            __x = max(min(x+_dx, 0), self.board_size)
+            __y = max(min(y+_dy, 0), self.board_size)
+            if state[__x, __y] != 2 and (__x, __y) not in visited:
+                if state[__x,__y] == cur_color:
+                    same_nbr.append((__x, __y))
+                else:
+                    other_nbr.append((__x, __y))
+        return (other_nbr, same_nbr)
 
 
 
@@ -628,5 +746,3 @@ class Game(DebugInfoProvider, Timing):
                 newState[x,y] = C2N("E")
         return newState
 
-
- 

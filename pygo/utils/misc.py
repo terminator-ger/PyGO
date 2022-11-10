@@ -5,20 +5,49 @@ from sklearn.cluster import KMeans, AgglomerativeClustering
 from scipy.cluster.hierarchy import linkage, average, fcluster
 import cv2
 import pdb
-from typing import List
+from typing import List, Tuple
 
-def get_ref_go_board_coords(min, max):
+def coordinate_to_letter(x: int) -> str:
+    table = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 
+             'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T']
+    return table[x]
+
+def pygo_to_go_coord_sys(c: Tuple[int, int], board_size=19) -> Tuple[str, int]:
+    x, y = c
+    return (coordinate_to_letter(x), board_size-y) 
+
+def sgfmill_to_pygo_coord_sys(c: Tuple[int, int], board_size=19) -> Tuple[int, int]:
+    x,y = c
+    return (y, board_size - x)
+
+
+def get_ref_go_board_coords(min, max, border):
     # assume symmectric go board
     dpx = (max[0]-min[0]) / 19
     dpy = (max[1]-min[1]) / 19
     go_board = np.zeros((19, 19, 2))
-
     for i in range(19):
         for j in range(19):
             go_board[i, j, 0] = i * dpx 
             go_board[i, j, 1] = j * dpy 
+    
+    go_board += np.array([border, border])
+    return go_board.reshape(-1,2)
 
-    go_board += np.array(min)
+def get_ref_coords(shape, border):
+    if len(shape) == 3:
+        h,w,_ = shape
+    elif len(shape) == 2:
+        h,w = shape
+    side = min(h,w)
+    dpx = (side-2*border) / 19
+    dpy = (side-2*border) / 19
+    go_board = np.zeros((19, 19, 2))
+    for i in range(19):
+        for j in range(19):
+            go_board[i, j, 0] = i * dpx 
+            go_board[i, j, 1] = j * dpy 
+    go_board += np.array([border, border])
     return go_board.reshape(-1,2)
 
 def get_grid_lines(grid):
@@ -151,7 +180,7 @@ def mask_board(image, go_board, border_size=15):
     else:
         rect = cv2.boundingRect(mask.astype(np.uint8))
     x,y,w,h = rect
-    cropped_img = image[y:y+h, x:x+w].copy()
+    cropped_img = image[y:y+h, x:x+w]#.copy()
     return cropped_img, (x,y)
 
 def find_src_pt(go, lines):

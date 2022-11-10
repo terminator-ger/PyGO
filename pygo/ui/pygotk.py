@@ -1,35 +1,25 @@
-from time import sleep
-
-from pip import main
 import cv2
-import numpy as np
 import pdb
+import numpy as np
 import threading
-from datetime import datetime
 import PIL
-from PIL import ImageTk
 import logging
+
+from PIL import ImageTk
+from datetime import datetime
 from functools import partial
 
-
 import tkinter as tk
-from tkinter import ttk
-from tkinter import filedialog as fd
 import tkinter.scrolledtext as scrolledtext
 
+from tkinter import ttk
+from tkinter import filedialog as fd
 
-from pygo.Signals import *
 from pygo.core import PyGO
-from pygo.classifier import GoClassifier, HaarClassifier, IlluminanceClassifier, CircleClassifier
-from pygo.Motiondetection import MotionDetectionMOG2
-from pygo.GoBoard import GoBoard
 from pygo.utils.typing import B3CImage, Image, NetMove
-from pygo.utils.data import save_training_data
-from pygo.utils.misc import flattenList
 from pygo.utils.debug import DebugInfo
-from pygo.Game import Game, GameState
-from pygo.Ensemble import SoftVoting, MajorityVoting
-from pygo.Webcam import Webcam
+from pygo.utils.color import C2N
+from pygo.Game import  GameState
 from pygo.Signals import *
 
 class PyGOTk:
@@ -40,6 +30,8 @@ class PyGOTk:
     def __init__(self, pygo: PyGO = None):
         logging.basicConfig()
         logging.getLogger().setLevel(logging.INFO)
+
+
         if pygo is None:
             self.pygo = PyGO()
             self.weOwnControllLooop = True
@@ -65,7 +57,6 @@ class PyGOTk:
 
         filemenu = tk.Menu(self.menubar, tearoff=0)
         filemenu.add_command(label="Save", command=self.onFileSave)
-        filemenu.add_command(label="Select Input", command=self.onInputChange)
         filemenu.add_command(label="Settings", command=self.onSettings)
         filemenu.add_command(label="Exit", command=self.onFileExit)
 
@@ -73,7 +64,13 @@ class PyGOTk:
         boardmenu.add_command(label='Detect', command=self.onBoardDetect)
 
         gamemenu = tk.Menu(self.menubar, tearoff=0)
-        gamemenu.add_command(label='Start new', command=self.onGameNew)
+        gamemenu.add_command(label='New Game', command=self.onGameNew)
+        gamemenu.add_separator()
+        gamemenu.add_command(label='Pause', command=self.GamePause)
+        gamemenu.add_command(label='Resume', command=self.GameRun)
+        gamemenu.add_separator()
+        gamemenu.add_command(label='Detect Handicap', command=self.onDetectHandicap)
+        gamemenu.add_command(label='Clear Manual Stones', command=self.onClearManualAll)
         
         self.viewVar = tk.IntVar(value=0)
         viewmenu = tk.Menu(self.menubar, tearoff=0)
@@ -95,6 +92,7 @@ class PyGOTk:
         debuglevelmenu = tk.Menu(debugmenu, tearoff=0)
         debuglevelmenu.add_checkbutton(label='Info', command=self.setLogLevelInfo)
         debuglevelmenu.add_checkbutton(label='Debug', command=self.setLogLevelDebug)
+        debuglevelmenu.add_checkbutton(label='Debug2', command=self.setLogLevelDebug2)
         debuglevelmenu.add_checkbutton(label='Warn', command=self.setLogLevelWarn)
 
         debugviewsmenu = tk.Menu(debugmenu, tearoff=0)
@@ -118,7 +116,7 @@ class PyGOTk:
         self.go_board_display.grid(column=0, row=0, sticky=tk.W, padx=5, pady=5)
         self.go_board_display.image = self.tkimage
 
-        self.move_log = scrolledtext.ScrolledText(self.root, undo=True, width=10)
+        self.move_log = scrolledtext.ScrolledText(self.root, undo=True, width=15)
         self.move_log.grid(column=1, row=0, padx=5, pady=5)
 
         self.sep_h = ttk.Separator(self.root, orient='horizontal')
@@ -127,11 +125,11 @@ class PyGOTk:
         self.go_tree_display = tk.PanedWindow(self.root)
         self.go_tree_display.grid(column=0, row=2)
 
-        self.go_tree_bwd   = tk.Button(self.go_tree_display, text="<=", command=self.GameTreeBack)
+        self.go_tree_bwd   = tk.Button(self.go_tree_display, text="<-", command=self.GameTreeBack)
         self.go_tree_bwd.grid(column=0, row=0)
-        self.go_tree_pause = tk.Button(self.go_tree_display, text="|>", command=self.GamePause)
+        self.go_tree_pause = tk.Button(self.go_tree_display, text="|>", command=self.GameTogglePauseResume)
         self.go_tree_pause.grid(column=1, row=0)
-        self.go_tree_fwd   = tk.Button(self.go_tree_display, text="=>", command=self.GameTreeForward)
+        self.go_tree_fwd   = tk.Button(self.go_tree_display, text="->", command=self.GameTreeForward)
         self.go_tree_fwd.grid(column=2, row=0)
 
 
@@ -142,42 +140,115 @@ class PyGOTk:
                          'MotionDetectionFactor': tk.DoubleVar(value=0.6),
         }
 
+        self.contextMenu = tk.Menu(self.root, tearoff=False)
+        self.contextMenu.add_command(label='White', command=self.addManualWhite)
+        self.contextMenu.add_command(label='Black', command=self.addManualBlack)
+        self.contextMenu.add_command(label='None', command=self.addManualNone)
+        self.contextMenu.add_separator()
+        self.contextMenu.add_command(label='Clear', command=self.removeManual)
 
-        self.root.bind("<space>", self.freeze)
-        self.go_board_display.bind("<ButtonPress-1>", self.motion)
+        self.root.bind("<space>", self.GameTogglePauseResume)
+        self.go_board_display.bind("<ButtonPress-1>", self.leftMouseOnGOBoard)
+        self.go_board_display.bind("<ButtonPress-3>", self.rightMouseOnGOBoard)
 
-        Signals.subscribe(GameNewMove, self.newMove)
-
-    def newMove(self, args):
-        msg = args[0]
-        self.logMove(msg)
+        self.moveHistory = []
 
 
-    def motion(self, event):
-        if self.pygo.Game.GS == GameState.RUNNING:
-            x, y = event.x, event.y
+        #Signals.subscribe(GameNewMove, self.newMove)
+        Signals.subscribe(UpdateLog, self.updateLog)
+        Signals.subscribe(GameHandicapMove, self.addHandicap)
+        Signals.subscribe(OnBoardDetected, self.updateGrid)
+        Signals.subscribe(GameReset, self.__clear_log)
 
-            if self.viewVar.get() in [0,1]:
-                grid = self.grid.reshape(19*19,2)
-            elif self.viewVar.get() == 2:
-                grid = self.grd_virtual.reshape(19*19,2)
-            else:
-                raise RuntimeError("Unkown View Layer")
+    def onDetectHandicap(self):
+        Signals.emit(DetectHandicap)
 
-            x_grid = np.repeat(x, 19*19)
-            y_grid = np.repeat(y, 19*19)
-            ref = np.stack((x_grid, y_grid)).T
-            dist = np.mean((ref - grid)**2, axis=1)
-            coord = np.argmin(dist)
-            x_board, y_board = np.unravel_index(coord, (19,19))
-            self.pygo.Game.setManual(x_board, y_board)
+    def __eventCoordsToGameCoords(self, event):
+        x, y = event.x, event.y
+        return self.__coordsToGameCoords(x,y)
     
+    def __coordsToGameCoords(self, x, y):
+        if self.viewVar.get() in [0,1]:
+            grid = self.grid.reshape(19*19,2)
+        elif self.viewVar.get() == 2:
+            grid = self.grd_virtual.reshape(19*19,2)
+        else:
+            raise RuntimeError("Unkown View Layer")
+
+        x_grid = np.repeat(x, 19*19)
+        y_grid = np.repeat(y, 19*19)
+        ref = np.stack((x_grid, y_grid)).T
+        dist = np.mean((ref - grid)**2, axis=1)
+        coord = np.argmin(dist)
+        x_board, y_board = np.unravel_index(coord, (19,19))
+        return (x_board, y_board)
+
+    def leftMouseOnGOBoard(self, event):
+        if self.pygo.Game.GS != GameState.NOT_STARTED:
+            x_board, y_board = self.__eventCoordsToGameCoords(event)
+            self.pygo.Game.setManual(x_board, y_board)
+
+    def rightMouseOnGOBoard(self, event):
+        if self.pygo.Game.GS != GameState.NOT_STARTED:
+            #x_board, y_board = self.__eventCoordsToGameCoords(event)
+            if self.pygo.Game.nextMove() == C2N('W'):
+                self.contextMenu.entryconfig("White", state="normal")
+                self.contextMenu.entryconfig("Black", state="disabled")
+            elif self.pygo.Game.nextMove() == C2N('B'):
+                self.contextMenu.entryconfig("White", state="disabled")
+                self.contextMenu.entryconfig("Black", state="normal")
+            else:
+                self.contextMenu.entryconfig("White", state="normal")
+                self.contextMenu.entryconfig("Black", state="normal")
+            self.contextMenu.tk_popup(event.x_root, event.y_root)
+
+    def addManualWhite(self) -> None:
+        c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
+        c_y = self.contextMenu.winfo_y() - self.go_board_display.winfo_rooty()
+        x,y = self.__coordsToGameCoords(c_x, c_y)
+        self.pygo.Game.setManual(x,y,C2N('W'))
+
+    def addManualBlack(self) -> None:
+        c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
+        c_y = self.contextMenu.winfo_y() - self.go_board_display.winfo_rooty()
+        x,y = self.__coordsToGameCoords(c_x, c_y)
+        self.pygo.Game.setManual(x,y,C2N('B'))
+
+    def addManualNone(self) -> None:
+        c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
+        c_y = self.contextMenu.winfo_y() - self.go_board_display.winfo_rooty()
+        x,y = self.__coordsToGameCoords(c_x, c_y)
+        self.pygo.Game.setManual(x,y,C2N('E'))
+
+
+    def removeManual(self) -> None:
+        c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
+        c_y = self.contextMenu.winfo_y() - self.go_board_display.winfo_rooty()
+        x,y = self.__coordsToGameCoords(c_x, c_y)
+        self.pygo.Game.clearManual(x,y)
+
 
     def freeze(self, event=None) -> None:
         self.pygo.freeze()
 
+    def GameTogglePauseResume(self, event=None) -> None:
+        if self.pygo.Game.GS == GameState.RUNNING:
+            self.GamePause()
+        elif self.pygo.Game.GS == GameState.PAUSED:
+            self.GameRun()
+        else:
+            # game is currently not started
+            logging.warning('Detect the board before starting the game!')
+
+    def onClearManualAll(self) -> None:
+        self.pygo.Game.clearManualAll()
+
+
     def GamePause(self) -> None:
-        Signals.emit(GamePauseResume)
+        Signals.emit(GamePause)
+    
+    def GameRun(self) -> None:
+        Signals.emit(GameRun)
    
     def GameTreeBack(self) -> None:
         Signals.emit(GameTreeBack)
@@ -197,87 +268,53 @@ class PyGOTk:
     def setLogLevelDebug(self) -> None:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    def setLogLevelDebug2(self) -> None:
+        logging.getLogger().setLevel(logging.DEBUG2)
+
     def setLogLevelWarn(self) -> None:
         logging.getLogger().setLevel(logging.WARN)
 
     def onVideoFileOpen(self) -> None:
-        self.video_str = fd.askopenfilename()
+        self.video_str = fd.askopenfilename(filetypes=[('mp4', '*.mp4'),
+        ])
 
         if self.video_str:
             self.pygo.input_stream.set_input_file_stream(self.video_str)
             self.onGameNew()
 
-    def onInputChange(self) -> None:
-        self.input_window = tk.Toplevel(self.root)
-        self.input_window.title('Select input')
-        self.input_window.grid()
-        self.video_str = tk.StringVar()
 
-        packlist = []
-        self.v = tk.IntVar()
+    def onInputDeviceChanged(self, *args):
+        #dev = self.input_devices[self.v.get()]
+        dev = args[0]
+        if '/dev/video' in dev:
+            #opencv only uses the number
+            dev_id = int(dev[-1])
+            self.pygo.input_stream.set_input_file_stream(dev_id)
+            Signals.emit(GameReset, 19)
+        else:
+            self.onVideoFileOpen()
 
-        self.v.set(0)  # initializing the choice, i.e. Python
-        video_ports = self.pygo.input_stream.getWorkingPorts()
-        video_ports.append('Select Video')
-
-        self.input_devices = []
-        for i,port in enumerate(video_ports):
-            if port != "Select Video": 
-                self.input_devices.append(('/dev/video{}'.format(port), i))
-            else:
-                self.input_devices.append((port, i))
-
-        Tbox = tk.Text(self.input_window, height=1, width=30)
-        Tbox.insert(tk.END,'Select Video')
-        btn = tk.Button(self.input_window, 
-                        command=self.onVideoFileOpen)
-        
-
-        packlist.append(Tbox)
-        packlist.append(btn)
-
-
-        tk.Label(self.input_window, 
-                text="Choose Input",
-                justify = tk.LEFT,
-                padx = 20).pack()
-
-        for txt, val in self.input_devices:
-            tk.Radiobutton(self.input_window, 
-                        text=txt,
-                        padx = 20, 
-                        variable=self.v, 
-                        command=self.onInputDeviceChanged if txt != 'Select Video' else self.onVideoFileOpen,
-                        value=val).pack(anchor=tk.W)
-
-        [p.pack() for p in packlist]
-
-
-    def onInputDeviceChanged(self):
-        dev, i = self.input_devices[self.v.get()]
-        self.pygo.input_stream.set_input_file_stream(dev)
 
 
     def onSettings(self):
         self.settings_window = tk.Toplevel(self.root)
         self.settings_window.title('Settings')
         self.settings_window.grid()
-        packlist = []
         btn1 = tk.Checkbutton(self.settings_window, 
                                 text='Allow undoing moves during recording',
                                 variable=self.settings['AllowUndo'],
                                 onvalue=True, 
                                 offvalue=False)
-        packlist.append(btn1)
-
-        lbl1 = tk.Label(self.settings_window, text="Motion Detection Agressiveness")
-        packlist.append(lbl1)
+        btn1.grid(column=0, row=0)
 
         sep = ttk.Separator(self.settings_window, orient='horizontal')
-        packlist.append(sep)
+        sep.grid(column=0, row=1, sticky='ew')
+
+        lbl1 = tk.Label(self.settings_window, text="Motion Detection Agressiveness")
+        lbl1.grid(column=0, row=2)
 
         switch_frame = tk.Frame(self.settings_window)
-        packlist.append(switch_frame)
+        switch_frame.grid(column=0, row=3)
 
         low_button = tk.Radiobutton(switch_frame, 
                                     text="Low", 
@@ -300,8 +337,33 @@ class PyGOTk:
         low_button.pack(side="left")
         med_button.pack(side="left")
         high_button.pack(side="left")
-        for item in packlist:
-            item.pack()
+
+
+        sep = ttk.Separator(self.settings_window, orient='horizontal')
+        sep.grid(column=0, row=4, sticky='ew')
+
+        lbl2 = tk.Label(self.settings_window, text="Video Input")
+        lbl2.grid(column=0, row=5)
+
+
+        self.v = tk.StringVar()
+        self.input_devices = []
+        video_ports = self.pygo.input_stream.getWorkingPorts()
+        for port in video_ports:
+            if port != "Select Video": 
+                self.input_devices.append('/dev/video{}'.format(port))
+        self.input_devices.append('Select Video')
+
+        self.v.set(self.pygo.input_stream.current_port)
+
+        dropdown = tk.OptionMenu(
+            self.settings_window,
+            self.v,
+            *self.input_devices,
+            command=self.onInputDeviceChanged
+        ) 
+        dropdown.grid(column=0, row=6)
+
 
         self.settings_window.protocol("WM_DELETE_WINDOW", self.on_settings_closing)
         Signals.emit(OnSettingsChanged, self.settings)
@@ -329,8 +391,8 @@ class PyGOTk:
 
 
     def onBoardDetect(self) -> None:
-        self.pygo.Board.calib(self.pygo.img_cam)
-        self.updateGrid()
+        # ask for board detection
+        Signals.emit(DetectBoard, self.pygo.img_cam)
 
     def onFileOpen(self) -> None:
         return
@@ -345,15 +407,28 @@ class PyGOTk:
 
     def onFileExit(self) -> None:
         self.on_closing()
+    
+    def __clear_log(self, *args):
+        self.move_log.delete('1.0', tk.END)
 
     def onGameNew(self) -> None:
-        cur_time = datetime.now().strftime("%d-%m-%Y")
-        self.move_log.delete('1.0', tk.END)
-        self.move_log.insert('end', 'New Game\n')
-        self.move_log.insert('end', '{}\n'.format(cur_time))
-        self.move_log.insert('end', '==========\n')
-        self.pygo.startNewGame()
-        self.updateGrid()
+        self.__clear_log()
+        Signals.emit(GameNew, 19)
+
+    def updateLog(self, args):
+        moves = args[0]
+        self.move_log.delete('1.0', 'end')
+        for move in moves:
+            self.move_log.insert('end', move)
+        self.move_log.see('end')
+
+    def addHandicap(self, args):
+        moves = args[0]
+        self.move_log.insert('end', 'Handicap +{}\n'.format(len(moves)))
+        for (x,y) in moves:
+            logging.debug('TK: Handicap at {} {}'.format(x,y))
+        self.move_log.see('end')  # move to the end after adding new text
+
 
     def run(self) -> None:
         self.root.after(1, self.update)
@@ -362,11 +437,15 @@ class PyGOTk:
     def logMove(self, msg: NetMove) -> None:
         if msg is not None:
             if msg[0] == 'e':
+                self.moveHistory.pop()
                 self.move_log.delete('end-2l', 'end-1l')
             elif msg[0] == '':
                 pass
             else:
-                self.move_log.insert('end', '{}: {}-{}\n'.format(msg[0], msg[1]+1, msg[2]+1))
+                move = '{}: {}-{}\n'.format(msg[0], msg[1]+1, msg[2]+1)
+                logging.debug('TK: new move ' + move)
+                self.moveHistory.append(move)
+                self.move_log.insert('end', move)
             self.move_log.see('end')  # move to the end after adding new text
 
 
@@ -375,7 +454,7 @@ class PyGOTk:
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         return ImageTk.PhotoImage(PIL.Image.fromarray(rgb))
 
-    def updateGrid(self) -> None:
+    def updateGrid(self, *args) -> None:
         with self.lock_grid:
             self.grid = self.pygo.Board.go_board_shifted
             self.grd_virtual = self.pygo.Board.grd_overlay
@@ -384,19 +463,9 @@ class PyGOTk:
     def update(self) -> None:
         if self.weOwnControllLooop:
             self.pygo.run_once()
-        
-        #state = self.pygo.Game.getCurrentState()
-        ##self.img_overlay = self.pygo.img_overlay.copy()
-        ##self.img_overlay = self.pygo.img_cam.copy()
-        #kif (state is not None and \
-        #        self.grid is not None and\
-        #        self.pygo.Board.hasEstimate):
-            #cv2.imwrite('out.png', self.img_overlay)
-            #self.img_overlay = plot_overlay(state, self.grid, self.img_overlay)
 
         if str(self.pygo.msg) != '':
             self.logMove(self.pygo.msg)
-
 
         if self.pygo.Game.GS == GameState.RUNNING:
             self.go_tree_pause.configure(text='||')
@@ -417,28 +486,3 @@ class PyGOTk:
         self.go_board_display.image = self.tkimage
         self.root.after(1, self.update)
 
-'''
-    def onMouse(self, event, x, y, flags, param):
-        pdb.set_trace()
-        if event == cv2.EVENT_LBUTTONDOWN:
-            # adjust for different views (virtual) which has smaller borders
-            if self.viewVar.get() in [0,1]:
-                grid = self.grid
-            elif self.viewVar.get() == 2:
-                grid = self.grd_virtual
-            else:
-                raise RuntimeError("Unkown View Layer")
-
-            x_grid = np.repeat(x, 19*19)
-            y_grid = np.repeat(y, 19*19)
-            ref = np.stack((x_grid, y_grid)).T
-            dist = np.mean((ref - grid)**2, axis=1)
-            coord = np.argmin(dist)
-            x_board, y_board = np.unravel_index(coord, (19,19))
-            self.pygo.Game.setManual(x_board, y_board)
-            #self.update()
-
-           # draw circle here (etc...)
-
-
-'''

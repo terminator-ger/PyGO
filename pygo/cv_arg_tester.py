@@ -15,6 +15,9 @@ from pygo.Webcam import Webcam
 from pygo.utils.typing import *
 import logging
 from nptyping import NDArray
+from skimage.filters import sobel
+from skimage.transform import hough_circle, hough_circle_peaks
+from skimage.draw import circle_perimeter
 
 T = TypeVar('T', int, float)
 
@@ -310,157 +313,134 @@ class Classifier(CV2ArgTester):
                                             self.get("KS"), self.get('C'))
             return mask_white
 
+        # Remove horizontal
+        def remove_lines( image, thresh, orientation='h'):
+            ipt = image.copy()
+            if orientation == 'h':
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1,25))
+                repair_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (6,1))
+            else:
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25,1))
+                repair_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1,6))
 
-        img = remove_glare2(img)
-        #img = cv2.equalizeHist(img)
-        img_c = img.copy()
-        hsv = toHSVImage(  img.copy())
-        yuv = toYUVImage(  img.copy())
-        cmyk = toCMYKImage(img.copy())
-        gray = toGrayImage(img.copy())
-        cmyk2 = cmyk[:,:,2]
-        cmyk3 = cmyk[:,:,3]
-        hsv1 = hsv[:,:,1]
-        hsv2 = hsv[:,:,2]
+            detected_lines = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
+            cnts = cv2.findContours(detected_lines, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cnts = cnts[0] if len(cnts) == 2 else cnts[1]
+            for c in cnts:
+                cv2.drawContours(ipt, [c], -1, 255, 1 )
 
-        mm = np.zeros_like(hsv1, dtype=np.uint8)
-        kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3))
-        blur = cv2.GaussianBlur(yuv[:,:,2],(5,5),0)
-        ret3,mask = cv2.threshold(blur,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-        mask = cv2.erode(mask, kernel, iterations=3)
-        mask = cv2.dilate(mask, kernel, iterations=3)
-        i2 = img.copy()
-        i2[mask==0] = 0
-        mm[mask==255] = 255
-        white = hsv1
-        mask_white = create_mask_white(white)
-        mask_white = cv2.erode(mask_white, kernel, iterations=5)
-        mask_white = cv2.dilate(mask_white, kernel, iterations=5)
-        #plt.imshow(mask_white)
-        #plt.show()
-        i2[mask_white==255] = 0
-        hsv1[mm==0] = 0
-        hsv2[mm==0] = 0
-        cmyk2[mm==0] = 0
-        cmyk3[mm==0] = 0
+            # Repair image
+            result = 255 - cv2.morphologyEx(255 - ipt, cv2.MORPH_CLOSE, repair_kernel, iterations=1)
+            return result    
 
-        blur = cv2.GaussianBlur(hsv1,(3,3),0)
-        mask_hsv1 = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                    cv2.THRESH_BINARY, 
-                                    self.get("KS"), self.get("C"))
-        return np.dstack((gray, mask_hsv1, gray))
+        def binarize(img: B1CImage) -> B1CImage:
+            gray = toByteImage(img.copy())
+            edge = toByteImage(sobel(img))
+
+            edge = cv2.threshold(edge, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)[1]
+
+            gray = remove_lines(gray, edge, 'h')
+            gray = remove_lines(gray, edge, 'v')
+            gray = cv2.GaussianBlur(gray,(5,5),0)
+            #cv2.imshow('gray', gray)
+            grid = toByteImage(sobel(gray))
+            out = cv2.threshold(grid, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)[1]
+            # remove edges outside the boards zone which could interfere with the detection
+            return out
+
+        def detect_stones( binary_img):
+
+            minRadius = 10
+            maxRadius = 16
+
+            hough_radii = np.arange(minRadius, maxRadius, 1)
+            hough_res = hough_circle(binary_img, hough_radii)
+            # Select the most prominent 3 circles
+            accums, cx, cy, radii = hough_circle_peaks(hough_res, hough_radii, 
+                                                    min_xdistance=minRadius,
+                                                    min_ydistance=minRadius)
+            circles = zip(cx,cy,radii)
+            return circles
+
+        clahe = cv2.createCLAHE(clipLimit=self.get('CL'))
+        img = toColorImage(clahe.apply(toGrayImage(img)))
+        cmyk = toCMYKImage(img)
+        bin_img = binarize(cmyk[:,:,3])
+        circles = detect_stones(bin_img)
+
+        def plot_circles(image, circles): 
+            crcl = toColorImage(image)
+            for x,y,r in circles:
+                circy, circx = circle_perimeter(y, x, r,
+                                                shape=image.shape)
+                crcl[circy, circx] = (20, 220, 20)
+            return crcl
+
+        crcl = plot_circles(bin_img.copy(), circles)
+        #bin_img_inv= binarize(255-cmyk[:,:,3])
+        #circles_inv = detect_stones(bin_img_inv)
+        #crcl2 = plot_circles(bin_img_inv.copy(), circles_inv)
+        return crcl
+
+
+
+class BoardDetect(CV2ArgTester):
+    def __init__(self, imgs):
+        CV2ArgTester.__init__(self, None)
+        self.imgs = imgs
+        self.img_ = self.stackImgs(self.imgs)
+        self.fn = self.detect
 
     
-        white = hsv[:,:,1]
-        mask_white = create_mask_white(white)
-        mask_black = cmyk[:,:,3]
+    def stackImgs(self, imgs):
+        l = len(imgs)
+        if l >= 2:
+            img_a = np.vstack(imgs[:l//2])
+            img_b = np.vstack(imgs[:l//2])
+            img = np.hstack((img_a, img_b))
+            img = cv2.resize(img, None, fx=.75, fy=.75)
+        else:
+            img = imgs[0]
+        return img
 
-        kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3))
-        #mask_img = cv2.erode(mask_white.copy(), kernel, iterations=4)
-        #img_masked = img.copy()
-        #img_masked[mask_img==255] = 0
+    def redraw(self):
+        self.img_mask = []
+        detected = []
+        for img in self.imgs:
+            detected.append(self.fn(img))
+        self.img_ = self.stackImgs(detected)
 
-        #img_glare_removed = remove_glare(img_masked)
+    def show(self):
+        print('____________________________')
+        
+        for k in self.args:
+            print('{} : {}'.format(k, self.get(k)))
+        if self.img_ is not None:
+            cv2.imshow('CV2ArgTester', self.img_)
+        else:
+            cv2.imshow('CV2ArgTester', self.img)
+        cv2.waitKey()
 
-        #cmyk = toCMYKImage(img_glare_removed)
-        #cv2.imshow('imgm', img_glare_removed)
-        #cv2.imshow('cmyk', cmyk[:,:,3])
-        hsv1 = hsv[:,:,1]
-        hsv2 = hsv[:,:,2]
-        #hsv1 = cv2.adaptiveThreshold(hsv1, 
-        #                                255,                                             
-        #                                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-        #                                cv2.THRESH_BINARY, 
-        #                                self.get("KS"), self.get('C'))
-
-        #hsv2 = cv2.adaptiveThreshold(hsv2, 255,                                             
-        #                                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-        #                                cv2.THRESH_BINARY_INV, 
-        #                                self.get("KS"), self.get('C'))
- 
-        mm = np.zeros_like(hsv1, dtype=np.uint8)
-        mm[np.logical_and(cmyk[:,:,3]<100, hsv2>100)] = 255
-
-        cv2.imshow('hsv1', hsv1)
-        cv2.imshow('hsv2', hsv2)
-        #cv2.imshow('mm', mm)
-
-        #gf = cv2.inpaint(cmyk[:,:,3], mm, 0.1, cv2.INPAINT_TELEA) 
-        #cv2.imshow('gf', gf)
-
-        import matplotlib
-        import matplotlib.pyplot as plt
-
-        pdb.set_trace()
-
-        data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        cv2.imshow('data', data)
-
-        mask_black = cmyk[:,:,3]
-        #mask_black[mask_white==255] = 0
-
-        hsv = hsv[:,:,1]
-        yuv = yuv[:,:,2]
-        #cmyk_w = cmyk[:,:,0]
-
-
-        filled_0 = img2contour(hsv)
-        filled_1 = img2contourbg(yuv)
-        #diff = filled_0 - filled_1
-        #filled = filled_0 - diff
-        #kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
-        #filled = cv2.erode(filled, kernel, iterations=2)
-        #filled = cv2.dilate(filled, kernel, iterations=2)
-        #mask = cv2.bitwise_and(filled, cmyk)
-
-        mask_black =  cv2.adaptiveThreshold(mask_black, 255,
-                                        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                        cv2.THRESH_BINARY, 
-                                        35, -self.get('C'))
-        cv2.imshow('mb', mask_black)
- 
-        mask_black = cv2.dilate(mask_black, kernel, iterations=4)
-        cv2.imshow('mbd', mask_black)
-  
-        mask_black = cv2.erode(mask_black, kernel, iterations=4)
-        cv2.imshow('mbe', mask_black)
- 
- 
-
-        #mask_w = cv2.morphologyEx(mask_w, cv2.MORPH_OPEN, kernel, iterations=2)
-
-        #cv2.imshow('cmyk', cmyk_w)
-        #cv2.imshow('mask_w', mask_w)
-        #cv2.imshow('mask_b', mask)
-        #cv2.waitKey(500)
-        #mask = cv2.bitwise_or(mask, mask_w)
-        markers_black = segment_on_dt(img, mask_black)
-        markers_white = segment_on_dt(img, mask_white)
-
-
-        img_out = cv2.applyColorMap(toByteImage(markers_black), cv2.COLORMAP_JET) 
-        img_out = dst = cv2.addWeighted(img_out, 0.5, img, 0.5, 0.0)
-        detected_circles = []
-        for markers in [markers_black]:#, markers_white]:
-            # remove borders
-            markers[markers==255] = 0
-            markers[markers>0] = 255
-            markers = 255-markers
-
-            ver = (cv2.__version__).split('.')
-            if int(ver[0]) < 3 :
-                detector = cv2.SimpleBlobDetector(self.params)
-            else :
-                detector = cv2.SimpleBlobDetector_create(self.params)
-            keypoints = detector.detect(markers)
-            img_out = cv2.drawKeypoints(img_out, keypoints, np.array([]), (0,0,255), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-        return img_out
-
-
+    def detect(self, img):
+        img = ((img-img.min()) / (img.max() - img.min()) * 255).astype(np.uint8)
+        img = toYUVImage(img)[:,:,0]
+        img_bw = cv2.adaptiveThreshold(img,
+                                        255,
+                                        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
+                                        cv2.THRESH_BINARY_INV,
+                                        self.get('a'),
+                                        self.get('b'))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+        cv2.morphologyEx(src=img_bw, dst=img_bw, op=cv2.MORPH_CLOSE, kernel=kernel)
+        return img_bw
  
 if __name__ == '__main__':
-    imgs = [cv2.imread('out{}.png'.format(i)) for i in range(6)]
+    imgs = [cv2.imread('light0{}.png'.format(i)) for i in range(1,7)]
+    #imgs = [cv2.imread('out{}.png'.format(i)) for i in [7343, 4130, 3844, 4128]]
+    cap = cv2.VideoCapture('/home/michael/dev/PyGo/New video.mp4')
+    img = cap.read()[1]
+    img = cv2.resize(img, None, fx=0.5, fy=0.5)
+    imgs = [img]
     #ipt = Webcam()
     #board = GoBoard(ipt.getCalibration())
     #imgs = []
@@ -472,15 +452,18 @@ if __name__ == '__main__':
     #    cv2.imwrite('out{}.png'.format(i), imgs[-1])
     #board.calib(imgs[2])
     #imgs = [board.extract(x) for x in imgs]
-    imgs = [imgs[0]]
-    argtest = Classifier(imgs)
-    argtest.addArgument('med_range', 0.33, (0.0, 1.0))
-    argtest.addArgument('thresh', 0.8, (0.0, 1.0))
-    argtest.addArgument('C', 1, (-5, 5))
-    argtest.addArgument('KS', 36, (3, 145))
-    argtest.addArgument('CKS', 36, (3, 145))
-    argtest.addArgument('CL', 2, (0, 20))
+    #imgs = [imgs[2]]
+    #argtest = Classifier(imgs)
+    #argtest.addArgument('med_range', 0.33, (0.0, 1.0))
+    #argtest.addArgument('thresh', 0.8, (0.0, 1.0))
+    #argtest.addArgument('C', 1, (-5, 5))
+    #argtest.addArgument('KS', 36, (3, 145))
+    #argtest.addArgument('CKS', 36, (3, 145))
+    #argtest.addArgument('CL', 2, (0, 20))
 
+    argtest = BoardDetect(imgs)
+    argtest.addArgument('a', 15, (0, 50))
+    argtest.addArgument('b', 15, (0, 50))
  
     argtest.show()
 

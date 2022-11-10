@@ -4,6 +4,7 @@ import cv2
 import pdb
 
 from pygo.Signals import OnBoardGridSizeKnown, Signals
+from pygo.utils.color import CNOT
 
 class Plot:
     def __init__(self):
@@ -50,8 +51,48 @@ class Plot:
                             thickness=1)
         return img
 
+    def plot_coordinate_system(self, img, grid, border, boardsize=19):
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fontScale = 0.4
+        color = (0, 0, 0)
+        thickness = 1
+        # Using cv2.putText() method
+        axisx = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 
+                 'N', 'O', 'P', 'Q', 'R', 'S', 'T']
+        axisy = ["{:>2d}".format(x) for x in range(19, -1, -1)]
+        if len(img.shape) == 2:
+            H, W = img.shape
+        else:
+            H, W, _ = img.shape
+        dy =  grid[1,0,0] - grid[0,0,0] 
+        dx =  grid[0,1,1] - grid[0,0,1] 
 
-    def plot_overlay(self, val, coords, img_ipt):
+        # background border
+        overlay = img.copy()
+        overlay[:int(grid[0,0,0]-dx/2)] = 255
+        overlay[int(grid[18,0,0]+dx/2):] = 255
+        overlay[:, :int(grid[0,0,1]-dy/2)] = 255
+        overlay[:, int(grid[18,18,1]+dy/2):] = 255
+        
+        img = cv2.addWeighted(img, 0.55, overlay, 0.45, 0)
+         
+        for i in range(boardsize):
+            # labels vertical
+            coord = (0, int(grid[i,0,0]+dy/4))
+            img = cv2.putText(img, axisy[i], coord, font, 
+                                fontScale, color, thickness, cv2.LINE_AA)
+
+            # label horizontal
+            coord = (int(grid[0,i,1]-dx/4), int(H-(border/2)+dy/4))
+            img = cv2.putText(img, axisx[i], coord, font, 
+                                fontScale, color, thickness, cv2.LINE_AA)
+
+
+        #img = cv2.addWeighted(img, 1, overlay, 0.75, 0)
+        return img
+        
+
+    def plot_overlay(self, val, coords, img_ipt, forced_moves, last_x, last_y, border):
         img = img_ipt
         val = val.reshape(-1)
         coords = coords.reshape(-1,2)
@@ -72,18 +113,49 @@ class Plot:
                             (int(c[0]),int(c[1])), 
                             radius=self.radius, 
                             color=color, 
-                            thickness=thickness)
+                            thickness=thickness,
+                            lineType=cv2.LINE_AA)
             if v != 2:
                 #draw additional gray border ontop
                 img = cv2.circle(img, 
                             (int(c[0]),int(c[1])), 
                             radius=self.radius, 
                             color=(100,100,100), 
-                            thickness=1)
+                            thickness=1,
+                            lineType=cv2.LINE_AA)
+        coords = coords.reshape(19,19,2)
+        for (v, (x,y)) in forced_moves:
+            c = coords[x,y]
+            img = cv2.circle(img, 
+                        (int(c[0]),int(c[1])), 
+                        radius=self.radius, 
+                        color=(0, 0, 160),
+                        thickness=1,
+                        lineType=cv2.LINE_AA)
+
+        if last_x != -1 and last_y != -1:
+            color_val = val.reshape(19,19)[last_x, last_y]
+            if color_val != 2:
+                last_color_dot = CNOT(int(color_val))
+                if last_color_dot == 0:
+                    # white stone -> black circle
+                    color = (255,255,255)
+                elif last_color_dot == 1:
+                    #black stone -> white circle
+                    color = (0,0,0)
+
+                c = coords[last_x, last_y]
+                img = cv2.circle(img, 
+                            (int(c[0]),int(c[1])), 
+                            radius=self.radius//2, 
+                            color=color, 
+                            thickness=1,
+                            lineType=cv2.LINE_AA)
+        img = self.plot_coordinate_system(img, coords, border)
 
         return img
 
-    def plot_virt_grid(self, val, coords, img_ipt):
+    def plot_virt_grid(self, val, coords, img_ipt, forced_moves, last_x, last_y):
         val = val.reshape(-1)
         coords = coords.reshape(-1,2)
         img = img_ipt.copy()

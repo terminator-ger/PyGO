@@ -1,5 +1,5 @@
 from pygo.core import PyGO
-from pygo.pygotk import PyGOTk
+from pygo.ui.pygotk import PyGOTk
 import threading
 
 

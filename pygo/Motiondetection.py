@@ -164,14 +164,26 @@ class MotionDetectionMOG2(DebugInfoProvider):
         if self.resize:
             img = cv2.resize(img, None, fx=0.25,fy=0.25)
         fgmask = self.fgbg.apply(img, self.settings['MotionDetectionFactor'])
+        fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel, iterations=2)
         bmask = fgmask.copy()
-        bmask = cv2.morphologyEx(bmask, cv2.MORPH_OPEN, self.kernel)
+        bmask = cv2.morphologyEx(bmask, cv2.MORPH_OPEN, self.kernel, iterations=1)
         bmask[self.bs:-self.bs, self.bs:-self.bs] = 0
         fgmask[:self.bs] = 0
         fgmask[:,:self.bs] = 0
         fgmask[-self.bs:] = 0
         fgmask[:,-self.bs:] = 0
 
+        idx = np.argwhere(fgmask > 0)
+        if len(idx) > 0:
+            x_min = np.min(idx[:,0])
+            x_max = np.max(idx[:,0])
+            y_min = np.min(idx[:,1])
+            y_max = np.max(idx[:,1])
+            dx = x_max-x_min
+            dy = y_max-y_min
+            area = dx*dy
+        else:
+            area = 0
 
         bmask_disp = cv2.resize(bmask, None, fx=4,fy=4)
         mask_disp = cv2.resize(fgmask, None, fx=4,fy=4)
@@ -182,14 +194,20 @@ class MotionDetectionMOG2(DebugInfoProvider):
         val = val.sum()
         bval = bmask > 0
         bval = bval.sum()
+        #if area > 100:
+        #    pdb.set_trace()
 
-        if not self.motion_active and val > .8*self.tresh:
+        if not self.motion_active and val > .8*self.tresh and bval > 0:
             # hand onto of board
             self.motion_active = True
             self.hist = 0
             return False
 
-        if self.motion_active and bval <= 3:#2.2*self.tresh:
+        if self.motion_active and bval <=  3 and area < 3*self.stone_area:
+            #if self.hist < 3:
+            #    self.hist += 1
+            #    return False
+            #else:
             self.motion_active = False
             self.hist = 0
             logging.debug('No Motion')

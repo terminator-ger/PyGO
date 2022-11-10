@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import Union
+import numpy as np
 
 def N2C(n: int) -> str:
     if n == 0:
@@ -28,7 +29,7 @@ class COLOR(Enum):
     NONE  = 2
 
 def CNOT(c: Union[str,int]) -> Union[str,int]:
-    if isinstance(c, int):
+    if isinstance(c, int) or isinstance(c, np.int64):
         return CNOT_INT(c)
     else:
         return N2C(CNOT_INT(c))

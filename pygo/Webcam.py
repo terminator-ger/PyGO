@@ -1,27 +1,41 @@
 import os
 import cv2
-from typing import Optional, Tuple, List
 import numpy as np
+
+from typing import Optional, Tuple, List
+
+from pygo.Signals import *
 from pygo.CameraCalib import CameraCalib
-import pdb
-
-from pygo.Signals import OnInputChanged, Signals
-
-
+from pygo.FileVideoStream import FileVideoStream
 
 class Webcam:
-    def __init__(self):
-        self.cam : Optional[cv2.VideoCapture] = None
+    def __init__(self, default=None):
+        self.cam : Optional[FileVideoStream] = None
         self.camera_calib : Optional[CameraCalib] = None
         self.limit_resolution : Optional[Tuple[int,int]] = (480,640)
         self.scale_factor = 1
+        self.default = default
         self.dx = 0
         self.dy = 0
+        self.current_port = None
+        self.__is_paused = False
         self.__update_ports()
         self.__auto_calibrate()
+        Signals.subscribe(GamePause, self.pause_stream)
+        Signals.subscribe(GameRun, self.unpause_stream)
+
+    def pause_stream(self, *args):
+        self.__is_paused = True
+
+    def unpause_stream(self, *args):
+        self.__is_paused = False
+
 
     def set_input_file_stream(self, file : str = None) -> None:
+        self.cam.release()
         self.cam = cv2.VideoCapture(file)
+        self.current_port = file
+
         width = self.cam.get(cv2.CAP_PROP_FRAME_WIDTH)
         height= self.cam.get(cv2.CAP_PROP_FRAME_HEIGHT)
 
@@ -31,30 +45,37 @@ class Webcam:
             self.scale_factor = max(fx, fy)
         else:
             self.scale_factor = 1
-
         delta = np.array([self.scale_factor*height, self.scale_factor*width]) - np.array(self.limit_resolution)
         self.dx = int(delta[0])
         self.dy = int(delta[1])
-        #self.camera_calib.set_image_size((width, height))
         Signals.emit(OnInputChanged)
+    
+    def __get_next_frame(self) -> np.ndarray:
+        img = self.cam.read()[1]
+        if self.limit_resolution:
+                img_ = cv2.resize(img, dsize=None, 
+                                fx = self.scale_factor, 
+                                fy = self.scale_factor)
+
+                if self.dx > 0 and self.dy > 0:
+                    img_ = img_[self.dx//2 : -self.dx//2, self.dy//2: -self.dy//2]
+                elif self.dx == 0 and self.dy > 0:
+                    img_ = img_[:, self.dy//2: -self.dy//2]
+                elif self.dy == 0 and self.dx > 0:
+                    img_ = img_[self.dx//2: -self.dx//2]
+                img = img_
+
+        return img
+
+    def read_ignore_lock(self) -> np.ndarray:
+        return self.__get_next_frame()
 
     def read(self) -> np.ndarray:
-        if self.limit_resolution:
-            img = self.cam.read()[1]
-            img_ = cv2.resize(img, dsize=None, 
-                            fx = self.scale_factor, 
-                            fy = self.scale_factor)
-
-            if self.dx > 0 and self.dy > 0:
-                img_ = img_[self.dx//2 : -self.dx//2, self.dy//2: -self.dy//2]
-            elif self.dx == 0 and self.dy > 0:
-                img_ = img_[:, self.dy//2: -self.dy//2]
-            elif self.dy == 0 and self.dx > 0:
-                img_ = img_[self.dx//2: -self.dx//2]
-
-            return img_
+        if self.__is_paused:
+            return None
         else:
-            return self.cam.read()[1]
+            return self.__get_next_frame()
+
 
     def release(self) -> None:
         self.cam.release()
@@ -102,7 +123,7 @@ class Webcam:
             camera = cv2.VideoCapture(dev_port)
             if not camera.isOpened():
                 self.non_working_ports.append(dev_port)
-                #print("Port %s is not working." %dev_port)
+                logging.debug2("Port %s is not working." %dev_port)
             else:
                 is_reading, img = camera.read()
                 w = camera.get(3)
@@ -112,12 +133,14 @@ class Webcam:
                     if w*h > best_resolution:
                         best_resolution = w*h
                         self.default_port = dev_port
-                        print(dev_port)
                 else:
-                    #print("Port %s for camera ( %s x %s) is present but does not reads." %(dev_port,h,w))
+                    logging.debug2("Port %s for camera ( %s x %s) is present but does not reads." %(dev_port,h,w))
                     self.available_ports.append(dev_port)
             dev_port +=1
-        print(self.default_port)
-        if self.default_port is not None:
-            print("Using port {}".format(self.default_port))
-            self.cam = cv2.VideoCapture(self.default_port)
+
+        port = self.default if self.default is not None else self.default_port
+
+        if port is not None:
+            print("Using port {}".format(port))
+            self.cam = cv2.VideoCapture(port)
+            self.current_port = '/dev/video{}'.format(port)

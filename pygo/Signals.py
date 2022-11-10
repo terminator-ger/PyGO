@@ -1,11 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import Callable
+import logging
 
 class Signals(ABC):
     subs = {}
 
     @staticmethod
     def subscribe(sig, fun : Callable):
+        logging.debug("Function {} was registered for {}".format(fun , sig))
         sig = sig.__name__
         if sig not in Signals.subs.keys():
             Signals.subs[sig] = []
@@ -19,12 +21,13 @@ class Signals(ABC):
                 sub(args)
 
 
+# Commands to different submodules/ Detected Events
 class DetectBoard(Signals):
     pass
 
-class GameNew(Signals):
+class DetectHandicap(Signals):
     pass
-
+ 
 class OnBoardDetected(Signals):
     pass
 
@@ -37,15 +40,6 @@ class OnSettingsChanged(Signals):
 class OnBoardMoved(Signals):
     pass
 
-class GameTreeBack(Signals):
-    pass
-
-class GameTreeForward(Signals):
-    pass
-
-class GamePauseResume(Signals):
-    pass
-
 class OnCameraGeometryChanged(Signals):
     pass
 
@@ -55,5 +49,31 @@ class OnInputChanged(Signals):
 class OnGridSizeUpdated(Signals):
     pass
 
+class UpdateLog(Signals):
+    pass
+
+
+# Game tree navigation and playing moves
+class GameTreeBack(Signals):
+    pass
+
+class GameTreeForward(Signals):
+    pass
+
+class GameNew(Signals):
+    pass
+
 class GameNewMove(Signals):
+    pass
+
+class GamePause(Signals):
+    pass
+
+class GameRun(Signals):
+    pass
+
+class GameHandicapMove(Signals):
+    pass
+
+class GameReset(Signals):
     pass
