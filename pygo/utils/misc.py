@@ -5,13 +5,21 @@ from sklearn.cluster import KMeans, AgglomerativeClustering
 from scipy.cluster.hierarchy import linkage, average, fcluster
 import cv2
 import pdb
-from typing import List
+from typing import List, Tuple
 
 def coordinate_to_letter(x: int) -> str:
     table = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 
              'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T']
     return table[x]
- 
+
+def pygo_to_go_coord_sys(c: Tuple[int, int], board_size=19) -> Tuple[str, int]:
+    x, y = c
+    return (coordinate_to_letter(x), board_size-y) 
+
+def sgfmill_to_pygo_coord_sys(c: Tuple[int, int], board_size=19) -> Tuple[int, int]:
+    x,y = c
+    return (y, board_size - x)
+
 
 def get_ref_go_board_coords(min, max, border):
     # assume symmectric go board

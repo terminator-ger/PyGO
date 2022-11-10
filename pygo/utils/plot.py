@@ -59,7 +59,7 @@ class Plot:
         # Using cv2.putText() method
         axisx = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 
                  'N', 'O', 'P', 'Q', 'R', 'S', 'T']
-        axisy = ["{:>2d}".format(x) for x in range(1,20)]
+        axisy = ["{:>2d}".format(x) for x in range(19, -1, -1)]
         if len(img.shape) == 2:
             H, W = img.shape
         else:
@@ -69,30 +69,13 @@ class Plot:
 
         # background border
         overlay = img.copy()
-
-        overlay[:int(grid[0,0,0]-dx/2)] = 0
-        overlay[int(grid[18,0,0]+dx/2):] = 0
-        overlay[:, :int(grid[0,0,1]-dy/2)] = 0
-        overlay[:, int(grid[18,18,1]+dy/2):] = 0
+        overlay[:int(grid[0,0,0]-dx/2)] = 255
+        overlay[int(grid[18,0,0]+dx/2):] = 255
+        overlay[:, :int(grid[0,0,1]-dy/2)] = 255
+        overlay[:, int(grid[18,18,1]+dy/2):] = 255
         
-
-        img = cv2.addWeighted(img, 0.75, overlay, 0.25, 0)
-        #overlay[mask==1] = 0
-
-        #tlx = int(0)
-        #tly = int(grid[0,0,0]-dy/2)
-        #brx = int(grid[0,0,0]-dx/2)
-        #bry = int(tly + boardsize*dy)
-        #overlay = cv2.rectangle(overlay, (tlx, tly), (brx, bry), (0,0,0), -1)
-
-        ## background box horizontal
-        #tlx = int(grid[0,0,1]-dx/4)
-        #tly = int(H-(border/2)+dy/4)
-        #brx = int(grid[0,18,0])
-        #bry = int(H)
-        #overlay = cv2.rectangle(overlay, (tlx, tly), (brx, bry), (0,0,0), -1)
-
-        
+        img = cv2.addWeighted(img, 0.55, overlay, 0.45, 0)
+         
         for i in range(boardsize):
             # labels vertical
             coord = (0, int(grid[i,0,0]+dy/4))

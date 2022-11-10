@@ -92,6 +92,7 @@ class PyGOTk:
         debuglevelmenu = tk.Menu(debugmenu, tearoff=0)
         debuglevelmenu.add_checkbutton(label='Info', command=self.setLogLevelInfo)
         debuglevelmenu.add_checkbutton(label='Debug', command=self.setLogLevelDebug)
+        debuglevelmenu.add_checkbutton(label='Debug2', command=self.setLogLevelDebug2)
         debuglevelmenu.add_checkbutton(label='Warn', command=self.setLogLevelWarn)
 
         debugviewsmenu = tk.Menu(debugmenu, tearoff=0)
@@ -267,6 +268,9 @@ class PyGOTk:
     def setLogLevelDebug(self) -> None:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    def setLogLevelDebug2(self) -> None:
+        logging.getLogger().setLevel(logging.DEBUG2)
+
     def setLogLevelWarn(self) -> None:
         logging.getLogger().setLevel(logging.WARN)
 
@@ -416,6 +420,7 @@ class PyGOTk:
         self.move_log.delete('1.0', 'end')
         for move in moves:
             self.move_log.insert('end', move)
+        self.move_log.see('end')
 
     def addHandicap(self, args):
         moves = args[0]

@@ -1,6 +1,7 @@
 import cv2
 import pdb
 import logging
+from pygo.BoardTracker import BoardTracker
 
 from pygo.classifier import *
 from pygo.Motiondetection import *
@@ -29,9 +30,7 @@ class PyGO(Timing):
         self.img_virtual = self.img_cam
 
         self.Motiondetection = MotionDetectionMOG2(self.img_cam)
-        #self.Motiondetection = MotionDetectionHandTracker(self.img_cam)
-        #self.BoardMotionDetecion = BoardShakeDetectionMOG2()
-        #self.Motiondetection = MotionDetectionBGSubCNT(self.img_cam)
+        self.BoardTracker = BoardTracker()
 
         self.Board = GoBoard(self.input_stream.getCalibration())
         self.Plot = Plot()
@@ -41,7 +40,6 @@ class PyGO(Timing):
         self.input_is_frozen = False
     
         self.PatchClassifier = CircleClassifier(self.Board, 19)
-        #Signals.subscribe(GamePauseResume, self.freeze)
         Signals.subscribe(GameRun, self.unfreeze)
         Signals.subscribe(GamePause, self.freeze)
         Signals.subscribe(GameNew, self.startNewGame)
@@ -73,8 +71,6 @@ class PyGO(Timing):
         
         if self.Board.hasEstimate:
             self.img_cropped = self.Board.extract(self.img_cam)
-            #val = self.PatchClassifier.predict(self.img_cropped)
-            #self.Game.updateState(val)
 
         # pause the game 
         Signals.emit(GamePause)
@@ -105,18 +101,15 @@ class PyGO(Timing):
 
             if self.Board.hasEstimate:
                 self.img_cropped =  self.Board.extract(self.img_cam)
+
                 if self.Motiondetection.hasNoMotion(self.img_cropped) \
                     and not self.Game.isPaused():
 
-                    i = [x for x in os.listdir('.') if 'out' in x]
-                    i = len(i)
-                    fn = 'out{}.png'.format(i+1)
-                    #cv2.imwrite(fn, self.img_cropped)
                     
                     if self.PatchClassifier.hasWeights:
-                        #if self.BoardMotionDetecion.checkIfBoardWasMoved(self.img_cropped):
-                        #    logging.debug('Realign Board')
-                        #    self.Board.calib(self.img_cam)
+                        if self.BoardTracker.update(self.Board.track_corners(self.img_cam)):
+                            self.Board.calib(self.img_cam)
+                            self.img_cropped =  self.Board.extract(self.img_cam)
 
                         val = self.PatchClassifier.predict(self.img_cropped)
                         self.img_overlay = self.Plot.plot_overlay(val, 

@@ -15,7 +15,7 @@ from pygo.utils.image import toByteImage
 from pygo.utils.color import N2C, C2N, COLOR, CNOT
 from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
 from pygo.utils.typing import Move, NetMove, GoBoardClassification
-from pygo.utils.misc import coordinate_to_letter
+from pygo.utils.misc import coordinate_to_letter, pygo_to_go_coord_sys, sgfmill_to_pygo_coord_sys
 from pygo.Signals import *
 
 
@@ -70,6 +70,9 @@ class Game(DebugInfoProvider, Timing):
     #######################################
 
     def __game_tree_back(self, *args):
+        if self.GS == GameState.NOT_STARTED:
+            return
+
         if self.GS == GameState.RUNNING:
             self.GS = GameState.PAUSED
             logging.info("Paused Game")
@@ -77,11 +80,13 @@ class Game(DebugInfoProvider, Timing):
         last = self.game_tree.get_last_node().parent
 
         if last.get_move() != (None, None):
-            n, (x,y) = last.get_move()
+            n, (mx,my) = last.get_move()
+            x,y = sgfmill_to_pygo_coord_sys((mx,my))
             self.state[x,y] = C2N('E')
             
             if last.parent.parent is not None:
-                n, (x,y) = last.parent.get_move()
+                n, (mx,my) = last.parent.get_move()
+                x,y = sgfmill_to_pygo_coord_sys((mx,my))
             else:
                 n = 'E'
                 x = -1
@@ -99,6 +104,9 @@ class Game(DebugInfoProvider, Timing):
 
 
     def __game_tree_forward(self, *args):
+        if self.GS == GameState.NOT_STARTED:
+            return
+
         if self.GS == GameState.RUNNING:
             self.GS = GameState.PAUSED
             logging.info("Paused Game")
@@ -113,7 +121,9 @@ class Game(DebugInfoProvider, Timing):
 
             # delete the other node as we would generate multiple 
             # dead ends skipping fwd and bwd
-            n, (x,y) = next_moves.get_move()
+            n, (mx,my) = next_moves.get_move()
+            x,y = sgfmill_to_pygo_coord_sys((mx,my))
+
             self.state[x,y] = C2N(n)
             self.last_color = C2N(n)
             self.last_x = x
@@ -271,9 +281,19 @@ class Game(DebugInfoProvider, Timing):
 
     def _setStone(self, x:int, y:int, c_str:str) -> None:
         c = C2N(c_str)
-        self.game_tree.get_last_node().set_move(c_str.lower(),(x,y))
+        
+        # sgf mill accepts points as (row, col) with 
+        # a coordinate systems used on go board not in sgf (inverted y-axis!)
+
+        mill_x, mill_y = (self.board_size-y), x
+
+        #import pdb
+        #pdb.set_trace()
+        self.game_tree.get_last_node().set_move(c_str.lower(),(mill_x, mill_y))
         self.game_tree.extend_main_sequence()
-        logging.info('{}: {}-{}'.format(c_str, x+1, y+1))
+
+        x_, y_ = pygo_to_go_coord_sys((x,y))
+        logging.info('{}: {}-{}'.format(c_str, x_, y_))
         self.last_x = x
         self.last_y = y
         self.state[x,y] = c
@@ -283,7 +303,8 @@ class Game(DebugInfoProvider, Timing):
 
 
     def _captureStone(self, x: int, y: int) -> None:
-        logging.info('Capture: {}-{}'.format(x+1, y+1))
+        x_, y_ = pygo_to_go_coord_sys((x,y))
+        logging.info('Capture: {}-{}'.format(x_, y_))
         self.state[x,y] = 2
 
 
@@ -338,7 +359,7 @@ class Game(DebugInfoProvider, Timing):
         added_next_color = [x for x in notInTree if x[0] not in ['E', N2C(self.last_color)]]
         added_old_color = [x for x in notInTree if x[0] == N2C(self.last_color)]
         removed_new_color = [x for x in notInTree if x[0] == 'E' and self.state[x[1][0],x[1][1]] == CNOT(self.last_color)]
-
+        
         # apply add stone to temp state
         working_state = self.state.copy()
         if len(added_next_color) == 1:
@@ -450,7 +471,9 @@ class Game(DebugInfoProvider, Timing):
             for c_str, (x,y) in notInTree:
                 if c_str == "B":
                     self.state[x,y] = C2N("B")
-                    moves_black.append((x,y))
+
+                    mill_x, mill_y = (self.board_size-y), x
+                    moves_black.append((mill_x,mill_y))
 
             BoardSetup.apply_setup(moves_black, moves_white, [])
             sgf_moves.set_initial_position(self.game_tree, BoardSetup)
@@ -459,6 +482,10 @@ class Game(DebugInfoProvider, Timing):
             # White starts
             self.last_color = C2N("B")
             Signals.emit(UpdateLog, self.get_move_list())
+        else:
+            logging.info('No handicap detected')
+            # start with black
+            self.last_color = C2N('W')
 
     
     def updateStateWithChecks(self, state) -> None:
@@ -468,8 +495,10 @@ class Game(DebugInfoProvider, Timing):
         if np.array_equal(state, self.state):
             logging.debug('No Difference found')
             return
-        
+        logging.debug2('before validity check') 
+        logging.debug2(state.reshape(19,19))
         state = self._simple_move_validity_check(state)
+        logging.debug2('after validity check') 
         logging.debug2(state.reshape(19,19))
 
         isInTree, notInTree = self.whichMovesAreInTheGameTree(state)
@@ -521,11 +550,15 @@ class Game(DebugInfoProvider, Timing):
         y = coords[1]
         c_str = stone
 
-        self.game_tree.get_last_node().set_move(c_str.lower(),(x,y))
+        mill_x, mill_y = (self.board_size-y), x
+
+        self.game_tree.get_last_node().set_move(c_str.lower(),(mill_x,mill_y))
         self.game_tree.extend_main_sequence()
         self.last_x = x
         self.last_y = y
-        logging.info('{}: {}-{}'.format(c_str, x+1, y+1))
+
+        x_, y_ = pygo_to_go_coord_sys((x,y))
+        logging.info('{}: {}-{}'.format(c_str, x_, y_))
         self.state[x,y] = C2N(c_str)
         self.last_color = C2N(c_str)
 
@@ -562,9 +595,10 @@ class Game(DebugInfoProvider, Timing):
                 mv = node.get_move()
                 if mv != (None, None):
                     n, (x,y) = mv
+
                     moves.append("{}: {}-{}\n".format(n.upper(), 
-                                                        coordinate_to_letter(x), 
-                                                        y+1))
+                                                        coordinate_to_letter(y),
+                                                        x))
 
         return moves
 

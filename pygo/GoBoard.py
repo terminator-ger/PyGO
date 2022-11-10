@@ -347,23 +347,26 @@ class GoBoard(DebugInfoProvider, Timing):
 
         # for fast binarization we use a preset threshold, this can fail on extreme 
         # illuminations
-        img_bw = self.binarizeImage(img, C=20)
         corners = self.detect_board_corners_fast(None, None, img)
-
         img_ = img.copy()
-        img_bw_ = toColorImage(img_bw)
 
         if corners is not None:
             corners = np.int32([corners])
             cv2.polylines(img_, corners, color=(0,255,0), isClosed=True, thickness=3)
 
             if self.debugStatus(debugkeys.Board_Outline):
+                img_bw = self.binarizeImage(img, C=20)
+                img_bw_ = toColorImage(img_bw)
                 cv2.polylines(img_bw_, corners, color=(0,255,0), isClosed=True, thickness=3)
-
-        self.showDebug(debugkeys.Board_Outline, img_bw_)
-
+                self.showDebug(debugkeys.Board_Outline, img_bw_)
  
         return img_
+
+    def track_corners(self, img: B3CImage) -> NDArray:
+        # for fast binarization we use a preset threshold, this can fail on extreme 
+        # illuminations
+        corners = self.detect_board_corners_fast(None, None, img)
+        return corners
 
 
     def get_vp(self, img: B1CImage) -> Tuple[Point3D, Point3D]:

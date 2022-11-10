@@ -553,8 +553,11 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         self.showDebug(debugkeys.MASK, mask)
 
         val,_ = self.__analyse(detected_circles, value)
+        
+        # our coordinate system is rotated
+        val = val.reshape(19,19).astype(int)
 
-        return val.astype(int)
+        return val
 
 
 
