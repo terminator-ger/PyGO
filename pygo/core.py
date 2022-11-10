@@ -124,7 +124,8 @@ class PyGO(Timing):
                                                         self.img_cropped,
                                                         self.Game.manualMoves,
                                                         self.Game.last_x,
-                                                        self.Game.last_y)
+                                                        self.Game.last_y,
+                                                        self.Board.border_size)
                         self.img_virtual = self.Plot.plot_virt_grid(val, 
                                                         self.Board.grd_overlay, 
                                                         self.Board.grid_img,
@@ -143,7 +144,8 @@ class PyGO(Timing):
                                                                 self.img_cropped,
                                                                 self.Game.manualMoves,
                                                                 self.Game.last_x,
-                                                                self.Game.last_y)
+                                                                self.Game.last_y,
+                                                                self.Board.border_size)
                     self.img_virtual = self.Plot.plot_virt_grid(self.Game.state, 
                                                         self.Board.grd_overlay, 
                                                         self.Board.grid_img,

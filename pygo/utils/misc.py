@@ -7,6 +7,12 @@ import cv2
 import pdb
 from typing import List
 
+def coordinate_to_letter(x: int) -> str:
+    table = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 
+             'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T']
+    return table[x]
+ 
+
 def get_ref_go_board_coords(min, max, border):
     # assume symmectric go board
     dpx = (max[0]-min[0]) / 19
@@ -21,7 +27,10 @@ def get_ref_go_board_coords(min, max, border):
     return go_board.reshape(-1,2)
 
 def get_ref_coords(shape, border):
-    h,w = shape
+    if len(shape) == 3:
+        h,w,_ = shape
+    elif len(shape) == 2:
+        h,w = shape
     side = min(h,w)
     dpx = (side-2*border) / 19
     dpy = (side-2*border) / 19

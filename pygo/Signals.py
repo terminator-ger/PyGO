@@ -49,6 +49,9 @@ class OnInputChanged(Signals):
 class OnGridSizeUpdated(Signals):
     pass
 
+class UpdateLog(Signals):
+    pass
+
 
 # Game tree navigation and playing moves
 class GameTreeBack(Signals):

@@ -1,13 +1,12 @@
 import os
 import cv2
-from typing import Optional, Tuple, List
 import numpy as np
-from pygo.CameraCalib import CameraCalib
-import pdb
+
+from typing import Optional, Tuple, List
 
 from pygo.Signals import *
+from pygo.CameraCalib import CameraCalib
 from pygo.FileVideoStream import FileVideoStream
-import time
 
 class Webcam:
     def __init__(self, default=None):
@@ -19,7 +18,6 @@ class Webcam:
         self.dx = 0
         self.dy = 0
         self.current_port = None
-        self.__is_file = False
         self.__is_paused = False
         self.__update_ports()
         self.__auto_calibrate()
@@ -34,13 +32,6 @@ class Webcam:
 
 
     def set_input_file_stream(self, file : str = None) -> None:
-
-        #check wether we have a webcam or a file
-        if os.path.exists(file):
-            self.__is_file = True
-        else:
-            self.__is_file = False
-
         self.cam.release()
         self.cam = cv2.VideoCapture(file)
         self.current_port = file
@@ -57,7 +48,6 @@ class Webcam:
         delta = np.array([self.scale_factor*height, self.scale_factor*width]) - np.array(self.limit_resolution)
         self.dx = int(delta[0])
         self.dy = int(delta[1])
-        #self.camera_calib.set_image_size((width, height))
         Signals.emit(OnInputChanged)
     
     def __get_next_frame(self) -> np.ndarray:
@@ -133,7 +123,7 @@ class Webcam:
             camera = cv2.VideoCapture(dev_port)
             if not camera.isOpened():
                 self.non_working_ports.append(dev_port)
-                #print("Port %s is not working." %dev_port)
+                logging.debug2("Port %s is not working." %dev_port)
             else:
                 is_reading, img = camera.read()
                 w = camera.get(3)
@@ -144,7 +134,7 @@ class Webcam:
                         best_resolution = w*h
                         self.default_port = dev_port
                 else:
-                    #print("Port %s for camera ( %s x %s) is present but does not reads." %(dev_port,h,w))
+                    logging.debug2("Port %s for camera ( %s x %s) is present but does not reads." %(dev_port,h,w))
                     self.available_ports.append(dev_port)
             dev_port +=1
 

@@ -1,33 +1,27 @@
-from distutils import dep_util
-from distutils.log import debug
-from xml.etree.ElementInclude import include
-import numpy as np
+from turtle import right
 import cv2
-from inpoly import inpoly2
+import logging
+import numpy as np
+
+from enum import Enum, auto
+
 from lu_vp_detect import VPDetection, LS_ALG
-from skimage import data, color, img_as_ubyte, exposure, transform, img_as_float
-from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
-from pygo.utils.homography import compute_homography_and_warp, compute_homography
-import matplotlib.pyplot as plt
-import math
-from pygo.utils.line import intersect, is_line_within_board, warp_lines
+from skimage import transform
+
+from nptyping import NDArray
+from typing import Optional, Tuple, List
+
+from pygo.utils.debug import DebugInfoProvider, Timing
 from pygo.utils.misc import *
 from pygo.utils.image import toByteImage, toCMYKImage, toGrayImage, toYUVImage
 from pygo.utils.plot import Plot
 from pygo.Signals import *
-from pycpd import AffineRegistration, RigidRegistration, DeformableRegistration
-from functools import partial
-from shapely.geometry import Polygon, LineString, Point
 from pygo.CameraCalib import CameraCalib
-from typing import Optional, Tuple, List
-import matplotlib.pyplot as plt
-import pdb
-import logging
 from pygo.utils.typing import B1CImage, B3CImage, Point2D, Point3D, Image, Mask, B1CImage, Corners
 from pygo.utils.image import toColorImage
-from nptyping import NDArray
-from enum import Enum, auto
-from pudb import set_trace
+
+
+
 
 class debugkeys(Enum):
     Detected_Lines = auto()
@@ -42,38 +36,50 @@ class GoBoard(DebugInfoProvider, Timing):
     def __init__(self, camera_calibration: CameraCalib):
         DebugInfoProvider.__init__(self)
         Timing.__init__(self)
+
         self.camera_calibration = camera_calibration
-        self.H = np.eye(3)
         self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
                               principal_point=self.camera_calibration.get_center(), 
                               length_thresh=50,
                               line_search_alg=LS_ALG.LSD_WITH_MERGE)
-        self.current_unwarped = None
+ 
+        self.H = np.eye(3)
+        self.hasEstimate = False
+
+        # Coordinate grids for different view
         self.grid = None
         self.go_board_shifted = None
-        self.hasEstimate = False
         self.grid_lines = None
+        self.cell_w = None
+        self.cell_h = None
+
+        # Images
+        self.current_unwarped = None
         self.grd_overlay = None
-        #self.border_size = 15
+
+        # Settings
         self.border_size = 30
-        self.plot = Plot()
+        self.binarization_kernel_size = 51
+        self.binarization_with_morphological_closing = False
 
         for key in debugkeys:
             self.available_debug_info[key.name] = False
 
-        Signals.subscribe(OnCameraGeometryChanged, self.cameraGeometryHasChanged)
+        Signals.subscribe(OnCameraGeometryChanged, self.camera_geometry_has_changed)
         Signals.subscribe(OnInputChanged, self.reset)
         Signals.subscribe(DetectBoard, self.__calib)
+
 
     def __calib(self, args) -> None:
         img =args[0]
         self.calib(img)
 
-    def cameraGeometryHasChanged(self, *args) -> None:
+    def camera_geometry_has_changed(self, *args) -> None:
         self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
                               principal_point=self.camera_calibration.get_center(), 
                               length_thresh=50,
                               line_search_alg=LS_ALG.LSD_WITH_MERGE)
+
 
     def reset(self, *args) -> None:
         self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
@@ -86,6 +92,7 @@ class GoBoard(DebugInfoProvider, Timing):
         self.hasEstimate = False
         self.grid_lines = None
         self.H = np.eye(3)
+
 
     def crop(self, pts : Corners, img : Image) -> Mask:
         ## (1) Crop the bounding rect
@@ -108,14 +115,21 @@ class GoBoard(DebugInfoProvider, Timing):
         dst2 = bg+ dst
         return dst2
 
-    def line_point_distance(self, point, line_s, line_e):
+
+    def line_point_distance(self, point: Point2D, line_s: Point2D, line_e: Point2D) -> float:
         '''
+            calculates the perpendicular distance of a point towards a line given by its
+            start and endpoints
         '''
-        nom = np.abs((line_e[0]-line_s[0])*(line_s[1]-point[1]) - (line_s[0]-point[0])*(line_e[1]-line_s[1]))
-        denom = np.sqrt((line_e[0]-line_s[0])**2 + (line_e[1]-line_s[1])**2) + 1e-12
+        nom = np.abs((line_e[0]-line_s[0])*(line_s[1]-point[1]) - 
+                      (line_s[0]-point[0])*(line_e[1]-line_s[1]))
+
+        denom = np.sqrt((line_e[0]-line_s[0])**2 + 
+                        (line_e[1]-line_s[1])**2) + 1e-12
         return nom/denom
 
-    def sort_corners(self, corners) -> Optional[NDArray]:
+
+    def sort_corners(self, corners: Corners) -> Optional[NDArray]:
         '''
             corners will be sorted by their center of mass in clockwise orientation
         '''
@@ -130,94 +144,90 @@ class GoBoard(DebugInfoProvider, Timing):
         else:
             return None
 
+
     def get_corners(self, vp1: Optional[Point2D], vp2: Optional[Point2D], img: Image) -> NDArray:
         '''
         vp1: 2d vanishing point
         vp2: 2d vanishing point
         img: thresholded image of the board
+        vp1 and vp2 can be omitted for speadup
         '''
+        contours, _ = cv2.findContours(img, 
+                                        cv2.RETR_EXTERNAL, 
+                                        cv2.CHAIN_APPROX_SIMPLE)
 
-        contours, hierarchy = cv2.findContours(img, 
-                                                cv2.RETR_EXTERNAL, 
-                                                cv2.CHAIN_APPROX_SIMPLE)
-        # vp1 and vp2 are the horizontal and vertical vps
+        #TODO: determine min_dist based on image geometry
         min_dist = 10000
         corners = []
         corners_mat = None
-        #cv2.imshow('',img.copy())
-        #cv2.waitKey(1000)
 
-        best_image = np.zeros_like(img)
-        img_out = None
+        # we expect the go board to cover at least a quater of the smaller image
+        # frames side
         smaller_side = min(img.shape)
         min_area = (0.25*smaller_side)**2
 
         for c, cnt in enumerate(contours):
             if len(cnt) < 4:
+                # contours with less than four points can be skipped
                 continue
-            img_out = img
-            #expect at least half
+
             area = cv2.contourArea(cnt)
             if area > min_area:
-
-                #somethimes the contour has small dents .. approximate till we have four corners left
+                # somethimes the contour has small dents .. approximate till
+                # we have only four corners left
                 for eps in np.linspace(0.001, 0.05, 10):
                     # approximate the contour
                     peri = cv2.arcLength(cnt, True)
                     approx = cv2.approxPolyDP(cnt, eps * peri, True)
-                    # debug output
-                    output = cv2.cvtColor(img.copy(), cv2.COLOR_GRAY2RGB)
-                    #cv2.drawContours(output, [approx], -1, (0, 255, 0), 3)
-                    #cv2.imshow("PyGO2", output)
-                    #cv2.waitKey(100)
-
-                    #text = "eps={:.4f}, num_pts={}".format(eps, len(approx))
-                    #cv2.putText(output, text, (0, 0), cv2.FONT_HERSHEY_SIMPLEX,\
-                    #    0.9, (0, 255, 0), 2)
-                    ## show the approximated contour image
-                    #print("[INFO] {}".format(text))
-                    # debug output end
 
                     if len(approx) == 4:
-                        # when we found an approximation with only four corneres we can stop
+                        # we found an approximation with four corneres we can stop
                         cnt = approx
                         break
 
                 if len(approx) != 4:
-                    # in case we looped to the end without a good result goto next shape
+                    # in case we looped to the end without a good result goto 
+                    # next shape
                     logging.debug("False corner count, we have : {}".format(len(approx)))
                     continue
 
-                # Find corners on the mask
+                # Find corners on the mask using the four most prominent corners
+                # should do the trick
                 mask = np.zeros((img.shape),np.uint8)
                 mask = cv2.fillConvexPoly(mask, np.array(approx), 255)
-                
-                corners = cv2.goodFeaturesToTrack(mask, \
-                                                    maxCorners=4, \
-                                                    qualityLevel=0.1, \
+
+                corners = cv2.goodFeaturesToTrack(mask, 
+                                                    maxCorners=4, 
+                                                    qualityLevel=0.1, 
                                                     minDistance=200)
                 if corners is None:
+                    # try the next shape
                     continue
+                
+                # sort corners clockwise
                 corners = self.sort_corners(corners)
                 
                 if corners is not None and len(corners) >= 4:
-                    topmost = corners[0]
-                    rightmost = corners[1]
-                    bottommost = corners[2]
-                    leftmost = corners[3]
+                    (topmost, rightmost, bottommost, leftmost) = corners
+
+                    # check the difference between the approximated and original mask
+                    # when we have masked the go board a four corner approximation 
+                    # should be very close to the actual mask
                     corner_mask = np.zeros((img.shape), np.uint8)
-                    corner_mask = cv2.fillConvexPoly(corner_mask, corners[:,None,:].astype(int), 255)
+                    corner_mask = cv2.fillConvexPoly(corner_mask, 
+                                                        corners[:,None,:].astype(int), 
+                                                        255)
                     dev_pixels = np.sum(mask-corner_mask)
 
                     if dev_pixels > 0.2 * np.sum(mask):
-                        #plt.subplot(121)
-                        #plt.imshow(mask-corner_mask)
-                        #plt.subplot(122)
-                        #plt.scatter(corners[:,0],corners[:,1])
-                        #plt.imshow(img)
-                        #plt.show()
-                        #print('skip')
+                        # the approximated mask deviates to much from the original
+                        # mask we have mask to much area, skip to the next shape
                         continue
+                    
+                    # given two vanishing points in our image we can check wether
+                    # the corners match up with the vanishing points
+                    # only works when most lines in the image are from the go board
+                    # which should be a fair assumption
                     if vp1 is not None and vp2 is not None:
                         d1 = min(self.line_point_distance(vp1, leftmost, topmost), 
                                 self.line_point_distance(vp2, leftmost, topmost))
@@ -229,84 +239,70 @@ class GoBoard(DebugInfoProvider, Timing):
                         d4 = min(self.line_point_distance(vp2, leftmost, bottommost),
                                 self.line_point_distance(vp1, leftmost, bottommost))
 
-                        # best detection has minimal deviation from vp and least deviation 
-                        # from four corners area to poly area
-
+                        # the best detection has minimal deviation from vp 
+                        # and the least deviation between the four corners area 
+                        # and the poly area
                         dist = d1 + d2 + d3 + d4
                         if dist < min_dist:
                             min_dist = dist
-                            #image = cv2.drawContours(img_out, contours, c, (0, 255, 0), 3)
-                            #cv2.imshow('',image)
-                            #cv2.waitKey(100)
-
-                            #best_image = image
-                            #best_cnt = cnt
-                            #print(area)
-                            corners = [leftmost, topmost, rightmost, bottommost]
-                            corners_mat = np.array(corners)
+                            corners_mat = np.array([leftmost, topmost, rightmost, bottommost])
                     else:
                         # fast version without vp check
-                        corners = [leftmost, topmost, rightmost, bottommost]
-                        corners_mat = np.array(corners)
-
-        #if corners_mat is not None:
-        #    plt.imshow(best_image)
-        #    plt.scatter(corners_mat[:,0], corners_mat[:,1])
-        #    plt.show()
+                        corners_mat = np.array([leftmost, topmost, rightmost, bottommost])
 
         return corners_mat
- 
+
+
     def detect_board_corners_fast(self, vp1: Point2D, vp2: Point2D, img: B3CImage) -> NDArray:
-        #img_bw = cv2.equalizeHist(img_bw)
         img_bw = self.binarizeImage(img, C=20)
         corners = self.get_corners(vp1, vp2, img_bw)
-
         logging.debug('Corners {}'.format(corners))
  
         return corners
 
 
-    def update_grid(self, img, corners):
+
+    def update_grid(self, img: Image, corners: NDArray) -> None:
+        '''
+            Updates all relevant data used for transformation of image
+            and the grid coordinates used during further processing
+        '''
         self.grid = get_ref_coords(img.shape, self.border_size)
+        self.img_limits = (img.shape[1],img.shape[0])
 
         target_corners = np.vstack((self.grid[18], 
                                     self.grid[0], 
                                     self.grid[342],
                                     self.grid[360]))
 
-        H, ret = cv2.findHomography(target_corners, corners)
-        self.img_limits = (img.shape[1],img.shape[0])
-        
-        self.H = H 
+        self.H, _ = cv2.findHomography(target_corners, corners)
+
+        _, (x,y) = mask_board(img, self.grid, self.border_size)
         self.grid_lines, self.grid_img, self.grd_overlay = get_grid_lines(self.grid)
-        self.hasEstimate=True
-        img_c_trim, (x,y) = mask_board(img, self.grid, self.border_size)
-        
+
         self.go_board_shifted = self.grid - np.array([x,y])
 
         self.cell_w = np.mean(np.diff(self.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))
         self.cell_h = np.mean(np.diff(self.go_board_shifted.reshape(19,19,2)[:,:,1], axis=1))
 
-        self.cl2 = self.go_board_shifted - np.array([self.cell_w/2, 0])
-        self.cr2 = self.go_board_shifted + np.array([self.cell_w/2, 0])
-        self.ct2 = self.go_board_shifted + np.array([0, self.cell_h/2])
-        self.cb2 = self.go_board_shifted - np.array([0, self.cell_h/2])
 
-
-    def detect_board_corners(self, vp1: Point2D, vp2: Point2D, img: B3CImage) -> NDArray:
-        #img_bw = cv2.equalizeHist(img_bw)
+    def detect_board_corners(self, vp1: Point2D, vp2: Point2D, img: B3CImage) -> Optional[NDArray]:
+        '''
+            Returns the corner coordintes of the detected go board as 2d array or None 
+            when no detection could be made
+        '''
         for C in np.arange(1,50,5):
+            # test different thresholds as different illumination conditions demand
+            # different settings
             img_bw = self.binarizeImage(img, C)
             corners = self.get_corners(vp1, vp2, img_bw)
-            #cv2.imshow('bw', img_bw)
-            #cv2.waitKey(500) 
+
             if corners is not None:
                 self.update_grid(img_bw, corners)
                 if self.check_board_alignment(img_bw):
+                    # stop search when the have found a good solution
+                    self.hasEstimate=True
                     break
-                #if self.check_patches_are_centered(img_bw):
-                    # we found a good solution
-                    #break
 
         #if corners is None:
         #    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
@@ -322,44 +318,48 @@ class GoBoard(DebugInfoProvider, Timing):
  
         return corners
 
-    def binarizeImage(self, img:B1CImage, C=10) -> B1CImage:
-        #img = ((img-img.min()) / (img.max() - img.min()) * 255).astype(np.uint8)
+
+    def binarizeImage(self, img:B3CImage, C:int=20) -> B1CImage:
+        '''
+            Returns a binarized image which should clearly show the boards grid
+        '''
         img_gray = toYUVImage(img)[:,:,0]
         img_bw = cv2.adaptiveThreshold(img_gray,
                                         255,
                                         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
-                                        #cv2.ADAPTIVE_THRESH_MEAN_C,\
                                         cv2.THRESH_BINARY_INV,
-                                        51,
+                                        self.binarization_kernel_size,
                                         C)
-        #cv2.imshow('before', img_bw)
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
-        #cv2.morphologyEx(src=img_bw, dst=img_bw, op=cv2.MORPH_CLOSE, kernel=kernel)
-        #cv2.imshow('after', img_bw)
-        #cv2.waitKey(1)
+
+        if self.binarization_with_morphological_closing:
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+            cv2.morphologyEx(src=img_bw, dst=img_bw, op=cv2.MORPH_CLOSE, kernel=kernel)
+
         return img_bw
 
+
     def get_corners_overlay(self, img: B3CImage) -> NDArray:
-        #img_gray = toGrayImage(img)
-        img_gray = toYUVImage(img)[:,:,0]
+        '''
+            Plotting the detection frame onto the image uses a reduced setting
+            compared to the actual calibration for speedup. Thus detecion is possible
+            event if the green border is not shown.
+        '''
+
+        # for fast binarization we use a preset threshold, this can fail on extreme 
+        # illuminations
         img_bw = self.binarizeImage(img, C=20)
-
-        #try:
-        #    vp1, vp2 = self.get_vp(img_gray)
-        #except NoVanishingPointsDetectedException:
-        #    return img
-
-        # assumption most lines in the image are from the go board -> vp give us the plane
-        # the contour which belongs to those vp is the board
-        #corners = self.detect_board_corners_fast(vp1, vp2, img)
         corners = self.detect_board_corners_fast(None, None, img)
 
         img_ = img.copy()
         img_bw_ = toColorImage(img_bw)
+
         if corners is not None:
             corners = np.int32([corners])
             cv2.polylines(img_, corners, color=(0,255,0), isClosed=True, thickness=3)
-            cv2.polylines(img_bw_, corners, color=(0,255,0), isClosed=True, thickness=3)
+
+            if self.debugStatus(debugkeys.Board_Outline):
+                cv2.polylines(img_bw_, corners, color=(0,255,0), isClosed=True, thickness=3)
+
         self.showDebug(debugkeys.Board_Outline, img_bw_)
 
  
@@ -367,10 +367,14 @@ class GoBoard(DebugInfoProvider, Timing):
 
 
     def get_vp(self, img: B1CImage) -> Tuple[Point3D, Point3D]:
+        '''
+            returns the vertical and horizontal vanishing points (3D)
+            from a given image
+        '''
         van_points = self.vp.find_vps(img)
         if van_points is None:
             raise NoVanishingPointsDetectedException()
-        #lines_vp = []
+
         vps = self.vp.vps_2D
         vp3d = self.vp.vps
         vert_vp = np.argmax(np.abs(vp3d[:,2]))
@@ -379,76 +383,58 @@ class GoBoard(DebugInfoProvider, Timing):
         vp2 = np.array([vps[1,0], vps[1,1], 1])
         return vp1, vp2
     
-    def calib(self, img: Image) -> None:
+
+    def calib(self, img: B3CImage) -> None:
+        '''
+            Detect the board and signal other components (UI)
+        '''
         img_c = img
-        if len(img.shape) == 3:
-            h,w,c = img.shape
-            #instead of the grayscale variant extract the red part
-            img_bw = self.binarizeImage(img)
-            img = toCMYKImage(img)[:,:,3]
-            #plt.imshow(img)
-            #plt.show()
-        else:
-            h,w = img.shape
+        img = toCMYKImage(img)[:,:,3]
 
         try:
             vp1, vp2 = self.get_vp(img) 
         except NoVanishingPointsDetectedException:
             return False
 
-        # assumption most lines in the image are from the go board -> vp give us the plane
+        # assumption most lines in the image are from the go board 
+        # -> vp give us the plane
         # the contour which belongs to those vp is the board
-        #self.vp.create_debug_VP_image(show_image=True)
         corners = self.detect_board_corners(vp1, vp2, img_c)
         if corners is None:
             logging.error("Could not detect Go-Board corners!")
             return
 
-        #self.grid = get_ref_go_board_coords(np.min(corners, axis=0), 
-        #                                    np.max(corners, axis=0),
-        #                                    self.border_size)
+        logging.debug2('Grid width {}'.format(self.cell_w))
+        logging.debug2('Grid height {}'.format(self.cell_h))
 
-        logging.info('Grid width {}'.format(self.cell_w))
-        logging.info('Grid height {}'.format(self.cell_h))
+        logging.debug2(self.H)
+        logging.info("Board detected")
 
-        logging.debug(self.H)
-        logging.info("Calibration successful")
         Signals.emit(OnGridSizeUpdated, self.cell_w, self.cell_h)
         Signals.emit(OnBoardDetected, self.extract(img) , corners, self.H)
         Signals.emit(OnBoardGridSizeKnown, self.go_board_shifted)
 
-    def imgToPatches(self, img : Image) -> List[Image]:
-        patches = []
-        for path in zip(self.cl2, self.ct2, self.cr2, self.cb2):
-            #l,r,t,b):
-            l1 = np.array([path[0][0], path[1][1]])
-            l2 = np.array([path[2][0], path[1][1]])
-            l3 = np.array([path[2][0], path[3][1]])
-            l4 = np.array([path[0][0], path[3][1]])
-            p = np.array([l1,l2,l3,l4]).astype(int)
-
-            patch = self.crop(p, img)
-
-            # fail for false calib -> None
-            if not np.all(np.array(patch.shape) > 0):
-                return None
-
-            patch =  transform.resize(patch, (32,32),  anti_aliasing=True)
-            patches.append(patch)
-        return patches
 
     def check_board_alignment(self, img:Image) -> bool:
+        '''
+            Perfectl aligned [extracted] images of the go board should have vertical 
+            and horizontal lines in the cropped image. We test this by looking at a 
+            binarized version of the board which should have distinct maxima when 
+            summed vertically/horizontally
+        '''
+
         cropped = self.extract_borderless(img)
         # crop bordering lines
         cw = int(self.cell_w //2)
         ch = int(self.cell_h //2)
-        thresh, bw = cv2.threshold(toByteImage(cropped[ch:-ch,cw:-cw]), \
+        _, bw = cv2.threshold(toByteImage(cropped[ch:-ch,cw:-cw]), \
                                 0, \
                                 255, \
                                 cv2.THRESH_BINARY+cv2.THRESH_OTSU)
         
         sum_x = np.sum(bw,0)
         sum_y = np.sum(bw,1)
+
         #only split by 17 as we removed the border fields
         px = np.array_split(sum_x, 17)
         py = np.array_split(sum_y, 17)
@@ -462,6 +448,71 @@ class GoBoard(DebugInfoProvider, Timing):
             return False
         else:
             return True
+
+
+    def extract_borderless(self, img: B3CImage) -> B3CImage:
+        '''
+            Removes the added border around the go board
+            image aligns with the boards corner lines
+        '''
+        img_w = self.extract(img)
+        bs = self.border_size
+        img_w = img_w[bs:-bs, bs:-bs]
+        return img_w
+ 
+
+    def extract(self, img: B3CImage) -> B3CImage:
+        '''
+            Returns a warped and centerd view of the go board
+            with some added padding to detect hands etc.
+        '''
+        self.current_unwarped = img
+        img_w = cv2.warpPerspective(img, np.linalg.inv(self.H), self.img_limits)
+        img_c_trim, (x,y) = mask_board(img_w, self.grid, self.border_size)
+
+        return img_c_trim
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -498,35 +549,6 @@ class GoBoard(DebugInfoProvider, Timing):
             return True
 
  
-    def extract_borderless(self, img):
-        self.current_unwarped = img
-        img_w = cv2.warpPerspective(img, np.linalg.inv(self.H), self.img_limits)
-        img_w, (x,y) = mask_board(img_w, self.grid, self.border_size)
-        bs = self.border_size
-        img_w = img_w[bs:-bs, bs:-bs]
-        return img_w
- 
-
-    def extract(self, img):
-        self.current_unwarped = img
-        img_w = cv2.warpPerspective(img, np.linalg.inv(self.H), self.img_limits)
-
-        #cv2.imshow('PyGO', img_w) 
-        #cv2.waitKey(1)
-
-        img_c_trim, (x,y) = mask_board(img_w, self.grid, self.border_size)
-        #self.go_board_shifted = self.grid - np.array([x,y])
-        #wide_limits = (self.img_limits[0]+50, self.img_limits[1]+50)
-        #wide_h = np.linalg.inv(self.H)
-        #wide_h[0,2] += 25
-        #wide_h[1,2] += 25
-        #img_w = cv2.warpPerspective(img, wide_h, wide_limits)
-        #img_c_wide, _ = mask_board(img_w, self.grid, wide_limits[0])
-        #cv2.imshow('PyGO', img_c_trim) 
-        #cv2.waitKey(100)
-
-
-        return img_c_trim#, img_c_wide
 
     def extractOnPoints(self, img):
         img = self.extract(img)
@@ -610,8 +632,7 @@ class GoBoard(DebugInfoProvider, Timing):
         p = self.imgToPatches(img)
         for c, idx in enumerate([idx_w, idx_b, idx_n, idx_edge, idx_corner]):
             patches[c].append(np.array(p)[idx])
-            #plt.imshow(np.vstack(np.array(p)[idx])/255)
-            #plt.show()
+
         return patches
 
 
@@ -622,6 +643,26 @@ class GoBoard(DebugInfoProvider, Timing):
 
 
 ''''
+    def imgToPatches(self, img : Image) -> List[Image]:
+        patches = []
+        for path in zip(self.cl2, self.ct2, self.cr2, self.cb2):
+            #l,r,t,b):
+            l1 = np.array([path[0][0], path[1][1]])
+            l2 = np.array([path[2][0], path[1][1]])
+            l3 = np.array([path[2][0], path[3][1]])
+            l4 = np.array([path[0][0], path[3][1]])
+            p = np.array([l1,l2,l3,l4]).astype(int)
+
+            patch = self.crop(p, img)
+
+            # fail for false calib -> None
+            if not np.all(np.array(patch.shape) > 0):
+                return None
+
+            patch =  transform.resize(patch, (32,32),  anti_aliasing=True)
+            patches.append(patch)
+        return patches
+
 
     def calib_old(self, img: Image) -> None:
         #img_c = img

@@ -153,7 +153,8 @@ class PyGOTk:
         self.moveHistory = []
 
 
-        Signals.subscribe(GameNewMove, self.newMove)
+        #Signals.subscribe(GameNewMove, self.newMove)
+        Signals.subscribe(UpdateLog, self.updateLog)
         Signals.subscribe(GameHandicapMove, self.addHandicap)
         Signals.subscribe(OnBoardDetected, self.updateGrid)
         Signals.subscribe(GameReset, self.__clear_log)
@@ -408,15 +409,13 @@ class PyGOTk:
 
     def onGameNew(self) -> None:
         self.__clear_log()
-        cur_time = datetime.now().strftime("%d-%m-%Y")
-        self.move_log.insert('end', 'New Game\n')
-        self.move_log.insert('end', '{}\n'.format(cur_time))
-        self.move_log.insert('end', '==========\n')
         Signals.emit(GameNew, 19)
 
-    def newMove(self, args):
-        msg = args[0]
-        self.logMove(msg)
+    def updateLog(self, args):
+        moves = args[0]
+        self.move_log.delete('1.0', 'end')
+        for move in moves:
+            self.move_log.insert('end', move)
 
     def addHandicap(self, args):
         moves = args[0]
