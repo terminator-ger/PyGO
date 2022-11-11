@@ -52,6 +52,9 @@ class Plot:
         return img
 
     def plot_coordinate_system(self, img, grid, border, boardsize=19):
+        if len(grid.shape) == 2:
+            grid = grid.reshape(boardsize,boardsize,-1)
+
         font = cv2.FONT_HERSHEY_SIMPLEX
         fontScale = 0.4
         color = (0, 0, 0)
@@ -78,12 +81,14 @@ class Plot:
          
         for i in range(boardsize):
             # labels vertical
-            coord = (0, int(grid[i,0,0]+dy/4))
+            tsize = cv2.getTextSize(axisy[i], font, fontScale, thickness)[0]
+            coord = (int(grid[i,0,1]-dx/2-tsize[0]), int(grid[i,0,0]+tsize[1]/2))
             img = cv2.putText(img, axisy[i], coord, font, 
                                 fontScale, color, thickness, cv2.LINE_AA)
 
             # label horizontal
-            coord = (int(grid[0,i,1]-dx/4), int(H-(border/2)+dy/4))
+            tsize = cv2.getTextSize(axisx[i], font, fontScale, thickness)[0]
+            coord = (int(grid[0,i,1]-tsize[0]/2), int(grid[18,i,0]+dy/2+tsize[1]))
             img = cv2.putText(img, axisx[i], coord, font, 
                                 fontScale, color, thickness, cv2.LINE_AA)
 
@@ -93,7 +98,7 @@ class Plot:
         
 
     def plot_overlay(self, val, coords, img_ipt, forced_moves, last_x, last_y, border):
-        img = img_ipt
+        img = img_ipt.copy()
         val = val.reshape(-1)
         coords = coords.reshape(-1,2)
         for v, c in zip(val, coords): 
@@ -183,6 +188,8 @@ class Plot:
                                 radius=self.radius, 
                                 color=color, 
                                 thickness=thickness)
+
+        img = self.plot_coordinate_system(img, coords.reshape(19,19,-2), 30)
 
         return img
 

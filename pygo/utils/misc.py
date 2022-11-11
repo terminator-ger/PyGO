@@ -60,7 +60,7 @@ def get_grid_lines(grid):
     dy = y_max - y_min
     ddx = dx / 18
     ddy = dy / 18
-    border = 20
+    border = 50
     bhalf = border/2
     grid_img = np.ones((int(dy)+border,int(dx)+border,3),dtype=np.uint8)*255
 
@@ -84,6 +84,7 @@ def get_grid_lines(grid):
     for i,x in enumerate(np.linspace(bhalf, bhalf+dx, 19)):
         for j,y in enumerate(np.linspace(bhalf, bhalf+dy, 19)):
             updated_grid[i,j] = [x,y]
+
     return lines, grid_img, updated_grid
 
 
