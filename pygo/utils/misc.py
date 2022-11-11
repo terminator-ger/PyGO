@@ -1,10 +1,6 @@
-import numpy as np
-from scipy.spatial.distance import pdist
-from scipy.spatial import  distance_matrix
-from sklearn.cluster import KMeans, AgglomerativeClustering
-from scipy.cluster.hierarchy import linkage, average, fcluster
 import cv2
-import pdb
+import numpy as np
+
 from typing import List, Tuple
 
 def coordinate_to_letter(x: int) -> str:
@@ -96,6 +92,11 @@ def toNP(x):
 
 
 def clear(lines):
+
+    from scipy.spatial import  distance_matrix
+    from sklearn.cluster import AgglomerativeClustering
+
+
     # cluster x
     circ_dists = distance_matrix(lines, lines, 2)
     x_data = lines[:,0]
@@ -125,6 +126,7 @@ def clear(lines):
 
 
 def cluster(x,y):
+    from scipy.cluster.hierarchy import average, fcluster
     arr = np.concatenate((x,y)).reshape(-1,2)
     X = average(arr.reshape(-1,2))
     cl = fcluster(X, 10, criterion='distance')
