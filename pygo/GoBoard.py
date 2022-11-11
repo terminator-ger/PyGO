@@ -1,4 +1,3 @@
-from turtle import right
 import cv2
 import logging
 import numpy as np
