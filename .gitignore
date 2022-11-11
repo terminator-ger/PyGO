@@ -6,3 +6,16 @@
 **/__pycache__/
 build/*
 PyGO.egg-info/*
+pygo/analyse2.py
+pygo/analyze.py
+pygo/cv_arg_tester.py
+pygo/Ensemble
+pygo/feature.py
+pygo/FileVideoStream.py
+pygo/icp.py
+pygo/InputWindow.py
+pygo/live_game_analyze.py
+pygo/pygo_profile.py
+pygo/segment.py
+pygo/train.py
+pygo/video_analyze.py
