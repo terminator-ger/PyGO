@@ -1,7 +1,7 @@
-import numpy as np
-import pdb
 import cv2
-from inpoly import inpoly2
+
+import numpy as np
+
 from pygo.utils.typing import Lines, Line
 
 def warp_lines(lines, H):
@@ -73,7 +73,9 @@ def contour_to_lines(contour):
         lines.append(np.vstack((contour[idx], contour[(idx+1)%len(contour)])))
     return np.vstack(lines)
 
+'''
 def is_line_within_board(l, board_lines):
+    from inpoly import inpoly2
     board_lines = contour_to_lines(board_lines)
     for bline in board_lines:   
         print(bline)
@@ -81,16 +83,15 @@ def is_line_within_board(l, board_lines):
         ret = intersection(line(l[0], l[1]), line(bline[0],bline[1]))
         # check for intersection point on pol
         IN, ON = inpoly2(np.array([ret]), board_lines)
-        pdb.set_trace()
         if not np.all(np.logical_or(IN, ON)):
             return False
         else:
             r = inpoly2(l, board_lines)
-            pdb.set_trace()
             #check for intersection point within contour
         print(ret)
 
     return True
+'''
 
 def points_in_polygon(polygon, pts):
     '''
