@@ -14,14 +14,12 @@ class BoardTracker(DebugInfoProvider):
         self.std = 1
 
         self.s_h = 0
-        self.s_l = 0
         self.w = 0
-        self.T = 1
+        self.T = 5
     
     def reset(self, corners:Corners) -> None:
         self.ref = corners
         self.s_h = 0
-        self.s_l = 0
 
     def update(self, corners: Optional[Corners]) -> bool:
         if self.ref is None and corners is not None:
@@ -34,12 +32,12 @@ class BoardTracker(DebugInfoProvider):
                 # euclidean distance
                 z_n = np.sqrt(np.sum(z_n ** 2, axis=1)) / self.std 
                 self.s_h = np.maximum(0, self.s_h + z_n - self.w)
-                self.s_l = np.maximum(0, self.s_h - z_n - self.w)
 
                 logging.debug2("s_h: {}".format(self.s_h))
-                logging.debug2("s_l: {}".format(self.s_l))
 
-                if np.any(self.s_h > self.T) or np.any(self.s_l > self.T):
+                shifted_corners_h = np.sum(self.s_h > self.T)
+
+                if shifted_corners_h > 1:
                     logging.warning('Board was moved!')
                     self.reset(corners)
                     return True

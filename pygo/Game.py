@@ -233,6 +233,8 @@ class Game(DebugInfoProvider, Timing):
             #save move in overwrite state
             self.manualMoves.append([c, (x,y)])
             logging.debug("Manual overwrite: Adding {} Stone at {} {}".format(N2C(c), x+1,y+1))
+
+        Signals.emit(UpdateLog, self.get_move_list())
         return self.applyManualMoves(self.state)
 
 

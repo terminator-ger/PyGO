@@ -56,6 +56,7 @@ class GoBoard(DebugInfoProvider, Timing):
         # Images
         self.current_unwarped = None
         self.grd_overlay = None
+        self.grid_img = None
 
         # Settings
         self.border_size = 30
