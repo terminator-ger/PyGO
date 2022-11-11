@@ -5,3 +5,4 @@ nptyping
 scikit-image
 playsound
 sgfmill 
+pygobject
