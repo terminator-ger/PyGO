@@ -1,119 +1,22 @@
-from distutils.log import debug
 import numpy as np
 import cv2
 
-from pudb import set_trace
 from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
 from pygo.utils.image import toByteImage, toColorImage, toGrayImage
 from pygo.utils.typing import Image, B3CImage, Mask
 from pygo.Signals import *
-from skimage.metrics import structural_similarity
-import matplotlib.pyplot as plt
-import bgsubcnt
-import pdb
+
+
 from enum import Enum, auto
 
 import logging
-import mediapipe as mp
+
 
 class debugkeys(Enum):
     Motion = auto()
     BoardMotion = auto()
 
 
-class MotionDetection(DebugInfoProvider):
-    def __init__(self, img: B3CImage) -> None:
-        super().__init__()
-        self.lk_params = dict( winSize  = (15,15),
-                  maxLevel = 2,
-                  criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
-        self.feature_params = dict( maxCorners = 100,
-                            qualityLevel = 0.3,
-                            minDistance = 7,
-                            blockSize = 7 )
-        img = cv2.resize(img, None, fx=0.25,fy=0.25)
-        self.p0 = cv2.goodFeaturesToTrack(img, mask = None, **self.feature_params)
-        self.imgLast = img
-        self.hist = 0
-
-    def hasNoMotion(self, img: B3CImage) -> bool:
-        img = cv2.resize(img, None, fx=0.25,fy=0.25)
-        if img.shape != self.imgLast.shape:
-            #first iteration after vp detect
-            self.imgLast = img
-            return True
-
-        p1, st, err = cv2.calcOpticalFlowPyrLK(self.imgLast, img, self.p0, None, **self.lk_params)
-        # Select good points
-        if p1 is not None:
-            good_new = p1[st==1]
-            good_old = self.p0[st==1]
-        else:
-            return True
-        
-        motion = np.max(np.abs(good_new-good_old))
-        self.p0 = good_new.reshape(-1,1,2)
-        self.imgLast = img
-
-        if motion >= 0.2:
-            # if we detect wiggle reset the frame counter
-            self.hist = self.hist // 2
-            return True
-        else: 
-            if self.hist < 10:
-                # block for at least 10 frames
-                self.hist += 1
-                return True
-            else:
-                return False
-
-
-class MotionDetectionBorderMask(DebugInfoProvider):
-    '''
-        We only use the Borders around the go board and compare with a reference image
-        to detect the presence of an arm
-        Attention: We need a hand free image during initialization as well as
-                   enough space around the board in the image
-    '''
-    def __init__(self)-> None:
-        super().__init__()
-        self.ref = None
-        self.hist = 0
-        self.motion_active = False
-        OnBoardDetected.subscribe(self.initRefImage)
-    
-    def initRefImage(self, img, corners, H) -> None:
-        img = toGrayImage(img)
-        self.ref = np.vstack((img[:10].T, img[-10:].T, img[:,:10], img[:,-10:]))
-        # black out center of the image
-
-    def hasMotion(self, img: B3CImage) -> bool:
-        if self.ref is None:
-            return True
-
-        img = toGrayImage(img)
-        img = np.vstack((img[:10].T, img[-10:].T, img[:,:10], img[:,-10:]))
-        (score, diff) = structural_similarity(self.ref, img, full=True)
-        print("Image Similarity: {:.4f}%".format(score * 100))
-
-        if not self.motion_active and score < 0.9:
-            # hand onto of board
-            self.motion_active = True
-            self.hist = 0
-            return True
-
-        if self.motion_active and score > 0.9:
-            if self.hist < 5:
-                self.hist += 1
-                return True
-            else:
-                # hand out of board
-                self.motion_active = False
-                self.hist = 0
-                logging.debug('No Motion')
-                return False
-
-        return True
 
 
 class MotionDetectionMOG2(DebugInfoProvider):
@@ -194,8 +97,7 @@ class MotionDetectionMOG2(DebugInfoProvider):
         val = val.sum()
         bval = bmask > 0
         bval = bval.sum()
-        #if area > 100:
-        #    pdb.set_trace()
+
 
         if not self.motion_active and val > .8*self.tresh and bval > 0:
             # hand onto of board
@@ -204,10 +106,6 @@ class MotionDetectionMOG2(DebugInfoProvider):
             return False
 
         if self.motion_active and bval <=  3 and area < 3*self.stone_area:
-            #if self.hist < 3:
-            #    self.hist += 1
-            #    return False
-            #else:
             self.motion_active = False
             self.hist = 0
             logging.debug('No Motion')
@@ -222,6 +120,104 @@ class MotionDetectionMOG2(DebugInfoProvider):
         fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel)
         return fgmask
 
+"""
+
+class MotionDetection(DebugInfoProvider):
+    def __init__(self, img: B3CImage) -> None:
+        super().__init__()
+        self.lk_params = dict( winSize  = (15,15),
+                  maxLevel = 2,
+                  criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+        self.feature_params = dict( maxCorners = 100,
+                            qualityLevel = 0.3,
+                            minDistance = 7,
+                            blockSize = 7 )
+        img = cv2.resize(img, None, fx=0.25,fy=0.25)
+        self.p0 = cv2.goodFeaturesToTrack(img, mask = None, **self.feature_params)
+        self.imgLast = img
+        self.hist = 0
+
+    def hasNoMotion(self, img: B3CImage) -> bool:
+        img = cv2.resize(img, None, fx=0.25,fy=0.25)
+        if img.shape != self.imgLast.shape:
+            #first iteration after vp detect
+            self.imgLast = img
+            return True
+
+        p1, st, err = cv2.calcOpticalFlowPyrLK(self.imgLast, img, self.p0, None, **self.lk_params)
+        # Select good points
+        if p1 is not None:
+            good_new = p1[st==1]
+            good_old = self.p0[st==1]
+        else:
+            return True
+        
+        motion = np.max(np.abs(good_new-good_old))
+        self.p0 = good_new.reshape(-1,1,2)
+
+        self.imgLast = img
+
+        if motion >= 0.2:
+            # if we detect wiggle reset the frame counter
+            self.hist = self.hist // 2
+            return True
+        else: 
+            if self.hist < 10:
+                # block for at least 10 frames
+                self.hist += 1
+                return True
+            else:
+                return False
+
+
+class MotionDetectionBorderMask(DebugInfoProvider):
+    '''
+        We only use the Borders around the go board and compare with a reference image
+        to detect the presence of an arm
+        Attention: We need a hand free image during initialization as well as
+                   enough space around the board in the image
+    '''
+    def __init__(self)-> None:
+        super().__init__()
+
+        from skimage.metrics import structural_similarity
+        self.ref = None
+        self.hist = 0
+        self.motion_active = False
+        OnBoardDetected.subscribe(self.initRefImage)
+    
+    def initRefImage(self, img, corners, H) -> None:
+        img = toGrayImage(img)
+        self.ref = np.vstack((img[:10].T, img[-10:].T, img[:,:10], img[:,-10:]))
+        # black out center of the image
+
+    def hasMotion(self, img: B3CImage) -> bool:
+        if self.ref is None:
+            return True
+
+        img = toGrayImage(img)
+        img = np.vstack((img[:10].T, img[-10:].T, img[:,:10], img[:,-10:]))
+        (score, diff) = structural_similarity(self.ref, img, full=True)
+        print("Image Similarity: {:.4f}%".format(score * 100))
+
+        if not self.motion_active and score < 0.9:
+            # hand onto of board
+            self.motion_active = True
+            self.hist = 0
+            return True
+
+        if self.motion_active and score > 0.9:
+            if self.hist < 5:
+                self.hist += 1
+                return True
+            else:
+                # hand out of board
+                self.motion_active = False
+                self.hist = 0
+                logging.debug('No Motion')
+                return False
+
+        return True
 
 
 class BoardShakeDetectionMOG2(DebugInfoProvider):
@@ -264,6 +260,7 @@ class BoardShakeDetectionMOG2(DebugInfoProvider):
 
 class MotionDetectionHandTracker(DebugInfoProvider):
     def __init__(self, img:B3CImage, resize:bool=True) -> None:
+        import mediapipe as mp
         DebugInfoProvider.__init__(self)
         
         self.mp_drawing = mp.solutions.drawing_utils
@@ -327,6 +324,8 @@ class MotionDetectionBGSubCNT(DebugInfoProvider):
     def __init__(self, img: B3CImage, resize:bool = True) -> None:
         DebugInfoProvider.__init__(self)
         
+        import bgsubcnt
+
         self.resize=resize
         if self.resize:
             img = cv2.resize(img, None, fx=0.25,fy=0.25)
@@ -365,4 +364,5 @@ class MotionDetectionBGSubCNT(DebugInfoProvider):
             return False
 
         return True
+"""
 

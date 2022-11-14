@@ -8,7 +8,8 @@ def run_app():
     ui = PyGOTk(pygo)
     t_l = threading.Thread(target=pygo.loop).start()
     ui.run()
-    t_l.join()
+    if t_l is not None:
+        t_l.join()
 
 if __name__ == "__main__":
     run_app()
