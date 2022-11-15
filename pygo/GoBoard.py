@@ -4,7 +4,7 @@ import numpy as np
 
 from enum import Enum, auto
 
-from lu_vp_detect import VPDetection, LS_ALG
+from thirdparty.XiaohuLuVPDetection.lu_vp_detect import VPDetection, LS_ALG
 from skimage import transform
 
 from nptyping import NDArray

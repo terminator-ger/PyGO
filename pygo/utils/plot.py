@@ -1,7 +1,5 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import cv2
-import pdb
+import numpy as np
 
 from pygo.Signals import OnBoardGridSizeKnown, Signals
 from pygo.utils.color import CNOT
@@ -217,7 +215,7 @@ class Plot:
         return img    
 
 
-
+'''
     def plot_stones(self, image):
 
         # apply threshold
@@ -264,3 +262,4 @@ class Plot:
         image[cy, cx] = (0, 0, 255)
         plt.imshow(image)
         plt.show()
+'''

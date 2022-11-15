@@ -6,7 +6,6 @@ from typing import Optional, Tuple, List
 
 from pygo.Signals import *
 from pygo.CameraCalib import CameraCalib
-from pygo.FileVideoStream import FileVideoStream
 
 class Webcam:
     def __init__(self, default=None):
