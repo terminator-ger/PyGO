@@ -30,18 +30,19 @@ class PyGO(Timing):
         self.img_cropped = self.img_cam
         self.img_virtual = self.img_cam
 
-        self.Motiondetection = MotionDetectionMOG2(self.img_cam)
-        self.BoardTracker = BoardTracker()
-
         self.History = History()
         self.Board = GoBoard(self.input_stream.getCalibration())
         self.Plot = Plot()
         self.Game = Game()
+        self.PatchClassifier = CircleClassifier(self.Board, 19)
+        self.Motiondetection = MotionDetectionMOG2(self.img_cam, classifier=self.PatchClassifier)
+        self.BoardTracker = BoardTracker()
+
+
         self.msg = ''
         self.Katrain = None
         self.input_is_frozen = False
     
-        self.PatchClassifier = CircleClassifier(self.Board, 19)
         Signals.subscribe(GameRun, self.unfreeze)
         Signals.subscribe(GamePause, self.freeze)
         Signals.subscribe(GameNew, self.startNewGame)

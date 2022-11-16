@@ -486,7 +486,9 @@ class Game(DebugInfoProvider, Timing):
             
             # White starts
             self.last_color = C2N("B")
+            # update log
             Signals.emit(UpdateLog, self.get_move_list())
+            Signals.emit(GameHandicapMove, len(moves_black)+len(moves_white))
         else:
             logging.info('No handicap detected')
             # start with black

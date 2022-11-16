@@ -184,9 +184,7 @@ class PyGOTk:
         self.moveHistory = []
 
         self.seek_job = None
-        #Signals.subscribe(GameNewMove, self.newMove)
         Signals.subscribe(UpdateLog, self.updateLog)
-        Signals.subscribe(GameHandicapMove, self.addHandicap)
         Signals.subscribe(OnBoardDetected, self.updateGrid)
         Signals.subscribe(GameReset, self.__clear_log)
         Signals.subscribe(NewMove, self.videoAddNewMove)
@@ -494,13 +492,6 @@ class PyGOTk:
         for move in moves:
             self.move_log.insert('end', move)
         self.move_log.see('end')
-
-    def addHandicap(self, args):
-        moves = args[0]
-        self.move_log.insert('end', 'Handicap +{}\n'.format(len(moves)))
-        for (x,y) in moves:
-            logging.debug('TK: Handicap at {} {}'.format(x,y))
-        self.move_log.see('end')  # move to the end after adding new text
 
 
     def run(self) -> None:

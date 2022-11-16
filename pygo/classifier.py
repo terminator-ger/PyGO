@@ -313,11 +313,11 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         return circles_clean
 
 
-    def get_hidden_intersections(self, img: B1CImage):
+    def get_hidden_intersections(self, img: B1CImage, scale: float = 1.0) -> B1CImage:
         map = sobel(img)
         map = toByteImage(map)
         cell_w = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))//2).astype(int)
-        cell_h = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,1], axis=1))//2).astype(int)
+        cell_w = (int(cell_w*scale))
 
         if cell_w % 2 == 0:
             cell_w -= 1
@@ -333,13 +333,15 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         side = side.astype(np.uint8)
 
 
-        ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7,7))
+        ksize = int(cell_w / 2) + 2
+        ellipse = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ksize, ksize))
 
         map_corner = np.zeros_like(map).astype(float)
         factor = np.zeros_like(map).astype(np.int32)
         coord = self.BOARD.go_board_shifted.astype(int).reshape(19,19,-1)
+        coord = (coord * scale).astype(int)
 
-        radius = 5
+        radius = int(cell_w / 2)
         for x in range(19):
             for y in range(19):
                 crd = coord[x,y]
@@ -359,9 +361,10 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         map_corner = factor * map_corner
         map_corner = (map_corner - map_corner.min()) / (map_corner.max() - map_corner.min()) * 255
         grid = toByteImage(map_corner)
-        _, grid = cv2.threshold(grid, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
 
+        _, grid = cv2.threshold(grid, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
         grid = cv2.dilate(grid, ellipse, iterations=1)
+
         return grid
 
 
@@ -372,12 +375,44 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         hidden_corners = self.get_hidden_intersections(cmyk[:,:,3])
         self.showDebug(debugkeys.GRID, hidden_corners)
         detections = []
-        for coord in self.BOARD.go_board_shifted.astype(int):
-            if hidden_corners[coord[1], coord[0]] == 0:
+        #for coord in self.BOARD.go_board_shifted.astype(int):
+        #    if hidden_corners[coord[1], coord[0]] == 0:
+        #        detections.append(coord)
+
+        cell_w = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))//2).astype(int)
+        cell_w = (int(cell_w/2))
+        T = cell_w*cell_w*0.6
+        grid = self.BOARD.go_board_shifted.astype(int)
+        for coord in grid:
+            if np.sum(hidden_corners[coord[1]-cell_w:coord[1]+cell_w, 
+                                     coord[0]-cell_w:coord[0]+cell_w]) / 255 < T:
                 detections.append(coord)
 
         detections = np.array(detections)
         return detections
+
+    def get_hidden_intersection_count(self, img: B3CImage, scale: float = 1.0) -> int:
+        '''
+        External method, used in the motion detector for cases where someone rests
+        with their hands long over the board while thinking...
+        '''
+        clahe = cv2.createCLAHE(clipLimit=2)
+        img = toColorImage(clahe.apply(toGrayImage(img)))
+        cmyk = toCMYKImage(img)
+        hidden_corners = self.get_hidden_intersections(cmyk[:,:,3], scale)
+        scaled_grid = (self.BOARD.go_board_shifted * scale).astype(int)
+        hidden_intersections = 0
+
+        cell_w = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))//2).astype(int)
+        cell_w = (int(cell_w*scale/2))
+        T = cell_w*cell_w*0.6
+        for coord in scaled_grid:
+            if np.sum(hidden_corners[coord[1]-cell_w:coord[1]+cell_w, 
+                                     coord[0]-cell_w:coord[0]+cell_w]) / 255 < T:
+                hidden_intersections += 1
+
+        return hidden_intersections
+
 
 
     def _detect_circle_detection_on_gradient(self, img):
