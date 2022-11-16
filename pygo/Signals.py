@@ -52,6 +52,11 @@ class OnGridSizeUpdated(Signals):
 class UpdateLog(Signals):
     pass
 
+class NewMove(Signals):
+    pass
+
+class VideoFrameCounterUpdated(Signals):
+    pass
 
 # Game tree navigation and playing moves
 class GameTreeBack(Signals):

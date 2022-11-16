@@ -2,6 +2,7 @@ import cv2
 import pdb
 import logging
 from pygo.BoardTracker import BoardTracker
+from pygo.Keyframes import History
 
 from pygo.classifier import *
 from pygo.Motiondetection import *
@@ -32,6 +33,7 @@ class PyGO(Timing):
         self.Motiondetection = MotionDetectionMOG2(self.img_cam)
         self.BoardTracker = BoardTracker()
 
+        self.History = History()
         self.Board = GoBoard(self.input_stream.getCalibration())
         self.Plot = Plot()
         self.Game = Game()
@@ -112,6 +114,7 @@ class PyGO(Timing):
                             self.img_cropped =  self.Board.extract(self.img_cam)
 
                         val = self.PatchClassifier.predict(self.img_cropped)
+
                         self.img_overlay = self.Plot.plot_overlay(val, 
                                                         self.Board.go_board_shifted, 
                                                         self.img_cropped,
@@ -127,7 +130,13 @@ class PyGO(Timing):
                                                         self.Game.last_y)
 
 
-                        self.Game.updateState(val)
+                        new_move_added = self.Game.updateState(val)
+                        self.History.update(self.img_cropped,
+                                                self.input_stream.get_pos(),
+                                                val,
+                                                new_move_added)
+
+
                         #if self.Katrain is not None:
                         #    self.Katrain.send(self.msg)
                 else:

@@ -1,5 +1,5 @@
-import numpy as np
 import cv2
+import numpy as np
 
 from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
 from pygo.utils.image import toByteImage, toColorImage, toGrayImage
@@ -18,7 +18,6 @@ class debugkeys(Enum):
 
 
 
-
 class MotionDetectionMOG2(DebugInfoProvider):
     '''
         Detects Motion between two frames and blocks the classification algorithm
@@ -30,15 +29,20 @@ class MotionDetectionMOG2(DebugInfoProvider):
         
         self.resize=resize
         if self.resize:
-            img = cv2.resize(img, None, fx=0.25,fy=0.25)
+            self.f = 0.5
+            img = cv2.resize(img, None, fx=self.f,fy=self.f)
+        else:
+            self.f = 1
         self.imgLast = img
         self.hist = 0
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(3,3))
         self.fgbg = cv2.createBackgroundSubtractorMOG2(400, detectShadows=False)
         self.motion_active = False
+
         self.settings = {
             'MotionDetectionFactor' : 0.6,
         }
+
         for key in debugkeys:
             self.available_debug_info[key.name] = False
         Signals.subscribe(OnSettingsChanged, self.settings_updated)
@@ -52,11 +56,10 @@ class MotionDetectionMOG2(DebugInfoProvider):
         width = args[0]
         height = args[1]
         radius = min(width, height) / 2
-        scale = 0.25 if self.resize else 1.
-        area = (radius * scale)**2 * np.pi
+        area = (radius * self.f)**2 * np.pi
         self.stone_area = area
         self.tresh = area
-        self.bs = int(min(width, height) * scale)
+        self.bs = int(min(width, height) * self.f)
 
     def settings_updated(self, args):
         new_settings = args[0]
@@ -65,7 +68,7 @@ class MotionDetectionMOG2(DebugInfoProvider):
 
     def hasNoMotion(self, img: B3CImage) -> bool:
         if self.resize:
-            img = cv2.resize(img, None, fx=0.25,fy=0.25)
+            img = cv2.resize(img, None, fx=self.f,fy=self.f)
         fgmask = self.fgbg.apply(img, self.settings['MotionDetectionFactor'])
         fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel, iterations=2)
         bmask = fgmask.copy()
@@ -115,7 +118,7 @@ class MotionDetectionMOG2(DebugInfoProvider):
 
     def getMask(self, img: B3CImage) -> Mask:
         if self.resize:
-            img = cv2.resize(img, None, fx=0.25,fy=0.25)
+            img = cv2.resize(img, None, fx=self.f,fy=self.f)
         fgmask = self.fgbg.apply(img)
         fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel)
         return fgmask

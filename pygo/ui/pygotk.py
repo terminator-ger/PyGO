@@ -1,3 +1,4 @@
+import os
 import cv2
 import pdb
 import numpy as np
@@ -10,9 +11,8 @@ from datetime import datetime
 from functools import partial
 
 import tkinter as tk
-import tkinter.scrolledtext as scrolledtext
-
 from tkinter import ttk
+import tkinter.scrolledtext as scrolledtext
 from tkinter import filedialog as fd
 
 from pygo.core import PyGO
@@ -109,29 +109,59 @@ class PyGOTk:
 
         debugmenu.add_cascade(label='Loglevel', menu=debuglevelmenu)
         debugmenu.add_cascade(label='Views', menu=debugviewsmenu)
+        debugmenu.add_command(label='Take Screenshot', command=self.save_image)
         self.menubar.add_cascade(label="Debug", menu=debugmenu)
 
+        self.pane_left = tk.Frame(master=self.root)
+        self.pane_right = tk.LabelFrame(master=self.root, text='Move Log')
+        self.pane_left.grid(column=0, row=0)
+        self.pane_right.grid(column=1, row=0, sticky=tk.NS)
+
+        ''' Image display '''
         self.tkimage = self.__np2tk(self.pygo.img_cam)
-        self.go_board_display = tk.Label(image=self.tkimage)
-        self.go_board_display.grid(column=0, row=0, sticky=tk.W, padx=5, pady=5)
+        self.go_board_display = tk.Label(self.pane_left, image=self.tkimage)
         self.go_board_display.image = self.tkimage
+        self.go_board_display.grid(column=0, row=0, padx=5, pady=5)
 
-        self.move_log = scrolledtext.ScrolledText(self.root, undo=True, width=15)
-        self.move_log.grid(column=1, row=0, padx=5, pady=5)
 
-        self.sep_h = ttk.Separator(self.root, orient='horizontal')
-        self.sep_h.grid(column=0, row=1, sticky='ew')
+        ''' Move Log '''
+        self.move_log = scrolledtext.ScrolledText(self.pane_right, undo=True, width=15)
+        self.move_log.pack(expand=True, fill=tk.Y, side=tk.TOP)
 
-        self.go_tree_display = tk.PanedWindow(self.root)
-        self.go_tree_display.grid(column=0, row=2)
-
+        ''' Tree Navigation Tools '''
+        self.go_tree_display = tk.LabelFrame(self.pane_left, text='Tree Navigation')
+        self.go_tree_display.grid(column=0, row=1, sticky=tk.W+tk.EW, padx=2)
+        self.go_tree_display.columnconfigure(0, weight=1)
+        self.go_tree_display.columnconfigure(1, weight=1)
+        self.go_tree_display.columnconfigure(2, weight=1)
         self.go_tree_bwd   = tk.Button(self.go_tree_display, text="<-", command=self.GameTreeBack)
-        self.go_tree_bwd.grid(column=0, row=0)
         self.go_tree_pause = tk.Button(self.go_tree_display, text="|>", command=self.GameTogglePauseResume)
-        self.go_tree_pause.grid(column=1, row=0)
         self.go_tree_fwd   = tk.Button(self.go_tree_display, text="->", command=self.GameTreeForward)
-        self.go_tree_fwd.grid(column=2, row=0)
 
+        self.go_tree_bwd.grid(row=1, column=0, sticky=tk.W+tk.E, padx=5, pady=5)
+        self.go_tree_pause.grid(row=1, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
+        self.go_tree_fwd.grid(row=1, column=2, sticky=tk.W+tk.E, padx=5, pady=5)
+
+
+        ''' History and Video Tools '''
+        self.video_edit = tk.LabelFrame(self.pane_left, text='Detections')
+        self.video_edit.grid(column=0, row=2, sticky=tk.W+tk.E, padx=2)
+        self.video_edit.columnconfigure(0, weight=1)
+
+        self.video_slider = tk.Scale(self.video_edit,
+                                from_=0,
+                                to=1,
+                                orient='horizontal',
+                                command=self.seek,
+                                sliderlength=5,
+                                showvalue=False,
+                                length=600)
+        self.tick_canvas = tk.Canvas(self.video_edit, height=20)
+
+        self.tick_canvas.grid(row=0, column=0, sticky=tk.W+tk.E, padx=5)
+        self.video_slider.grid(row=1, column=0, sticky=tk.W+tk.E, padx=5)
+
+ 
 
         self._next_job = None
         self.QUIT = False
@@ -153,15 +183,38 @@ class PyGOTk:
 
         self.moveHistory = []
 
-
+        self.seek_job = None
         #Signals.subscribe(GameNewMove, self.newMove)
         Signals.subscribe(UpdateLog, self.updateLog)
         Signals.subscribe(GameHandicapMove, self.addHandicap)
         Signals.subscribe(OnBoardDetected, self.updateGrid)
         Signals.subscribe(GameReset, self.__clear_log)
+        Signals.subscribe(NewMove, self.videoAddNewMove)
+        Signals.subscribe(VideoFrameCounterUpdated, self.video_frame_counter_udpated)
+
+    def video_frame_counter_udpated(self, args):
+        cnt = args[0]
+        self.video_slider.set(int(cnt))
+ 
+
+    def save_image(self):
+        idx = len(os.listdir('./debug'))
+        cv2.imwrite('./debug/{}.png'.format(idx+1), self.pygo.img_cropped)
+
 
     def onDetectHandicap(self):
         Signals.emit(DetectHandicap)
+
+    def videoAddNewMove(self, *args):
+        ts = args[0][0]
+        if ts is not None:
+            width = self.video_slider.winfo_width()
+            steps = self.pygo.input_stream.frames_total
+
+            rel = width / steps * ts
+            self.tick_canvas.create_line(rel, 0, rel, 20)
+
+
 
     def __eventCoordsToGameCoords(self, event):
         x, y = event.x, event.y
@@ -182,6 +235,23 @@ class PyGOTk:
         coord = np.argmin(dist)
         x_board, y_board = np.unravel_index(coord, (19,19))
         return (x_board, y_board)
+
+    def hide_video_ui(self):
+        self.video_edit.grid_forget
+
+    def show_video_ui(self):
+        self.video_slider.configure(to=self.pygo.input_stream.get_length())
+        self.video_edit.grid(column=0, row=2)
+
+    def seek(self, event):
+        if self.seek_job:
+            self.root.after_cancel(self.seek_job)
+        self.seek_job = self.root.after(500, self._set_frame_pos)
+
+    def _set_frame_pos(self) -> None:
+        val = self.video_slider.get()
+        self.pygo.input_stream.set_pos(val)
+
 
     def leftMouseOnGOBoard(self, event):
         if self.pygo.Game.GS != GameState.NOT_STARTED:
@@ -243,18 +313,22 @@ class PyGOTk:
     def onClearManualAll(self) -> None:
         self.pygo.Game.clearManualAll()
 
+    def game_is_active(self):
+        return self.pygo.Game.GS != GameState.NOT_STARTED
 
     def GamePause(self) -> None:
         Signals.emit(GamePause)
     
     def GameRun(self) -> None:
         Signals.emit(GameRun)
-   
+    
     def GameTreeBack(self) -> None:
-        Signals.emit(GameTreeBack)
+        if self.game_is_active:
+            Signals.emit(GameTreeBack)
 
     def GameTreeForward(self) -> None:
-        Signals.emit(GameTreeForward)
+        if self.game_is_active:
+            Signals.emit(GameTreeForward)
     
     def switchState(self, fn, name, state):
         if state.get():
@@ -274,25 +348,24 @@ class PyGOTk:
     def setLogLevelWarn(self) -> None:
         logging.getLogger().setLevel(logging.WARN)
 
-    def onVideoFileOpen(self) -> None:
-        self.video_str = fd.askopenfilename(filetypes=[('mp4', '*.mp4'),
-        ])
-
-        if self.video_str:
-            self.pygo.input_stream.set_input_file_stream(self.video_str)
-            self.onGameNew()
-
 
     def onInputDeviceChanged(self, *args):
-        #dev = self.input_devices[self.v.get()]
+        
         dev = args[0]
         if '/dev/video' in dev:
             #opencv only uses the number
             dev_id = int(dev[-1])
             self.pygo.input_stream.set_input_file_stream(dev_id)
             Signals.emit(GameReset, 19)
+            self.hide_video_ui()
         else:
-            self.onVideoFileOpen()
+            self.video_str = fd.askopenfilename(filetypes=[('mp4', '*.mp4'),
+            ])
+            if self.video_str:
+                self.pygo.input_stream.set_input_file_stream(self.video_str)
+                self.onGameNew()
+                self.show_video_ui()
+
 
 
 
@@ -484,5 +557,6 @@ class PyGOTk:
 
         self.go_board_display.configure(image=self.tkimage)
         self.go_board_display.image = self.tkimage
+        
         self.root.after(1, self.update)
 

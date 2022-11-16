@@ -9,7 +9,7 @@ from pygo.CameraCalib import CameraCalib
 
 class Webcam:
     def __init__(self, default=None):
-        self.cam : Optional[FileVideoStream] = None
+        self.cam : Optional[cv2.VideoCapture] = None
         self.camera_calib : Optional[CameraCalib] = None
         self.limit_resolution : Optional[Tuple[int,int]] = (480,640)
         self.scale_factor = 1
@@ -18,22 +18,51 @@ class Webcam:
         self.dy = 0
         self.current_port = None
         self.__is_paused = False
+        self.last_frame = None
+        self.frames_total = None
+        self.frame_n = None
+
         self.__update_ports()
         self.__auto_calibrate()
         Signals.subscribe(GamePause, self.pause_stream)
         Signals.subscribe(GameRun, self.unpause_stream)
 
+
     def pause_stream(self, *args):
         self.__is_paused = True
 
+
     def unpause_stream(self, *args):
         self.__is_paused = False
+
+
+    def get_length(self) -> Optional[int]:
+        return self.frames_total
+
+
+    def get_pos(self) -> Optional[int]:
+        fp = self.cam.get(cv2.CAP_PROP_POS_FRAMES)
+        if fp == -1:
+            return None
+        return fp
+
+
+    def set_pos(self, frame: int) -> None:
+        logging.info("Video set to {}".format(frame))
+        max_len = self.get_length()
+        if max_len is not None and frame > 0 and frame < max_len:
+            self.cam.set(cv2.CAP_PROP_POS_FRAMES, frame)
 
 
     def set_input_file_stream(self, file : str = None) -> None:
         self.cam.release()
         self.cam = cv2.VideoCapture(file)
         self.current_port = file
+
+        self.frames_total = self.cam.get(cv2.CAP_PROP_FRAME_COUNT)
+        if self.frames_total == -1:
+            # no video file
+            self.frame_n = 0
 
         width = self.cam.get(cv2.CAP_PROP_FRAME_WIDTH)
         height= self.cam.get(cv2.CAP_PROP_FRAME_HEIGHT)
@@ -50,7 +79,9 @@ class Webcam:
         Signals.emit(OnInputChanged)
     
     def __get_next_frame(self) -> np.ndarray:
-        img = self.cam.read()[1]
+        ret, img = self.cam.read()
+        if not ret:
+            return self.last_frame
         if self.limit_resolution:
                 img_ = cv2.resize(img, dsize=None, 
                                 fx = self.scale_factor, 
@@ -63,7 +94,19 @@ class Webcam:
                 elif self.dy == 0 and self.dx > 0:
                     img_ = img_[self.dx//2: -self.dx//2]
                 img = img_
-
+                #img = cv2.fastNlMeansDenoising(img, 
+                #                            templateWindowSize=5, 
+                #                            searchWindowSize=7)
+                #kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+                #img = cv2.filter2D(img, -1, kernel)
+                self.last_frame = img
+                # only increment for live videos
+                if self.frames_total == -1:
+                    self.frame_n += 1
+                else:
+                    # notify ui of video progress
+                    Signals.emit(VideoFrameCounterUpdated, self.get_pos())
+        
         return img
 
     def read_ignore_lock(self) -> np.ndarray:
@@ -85,23 +128,13 @@ class Webcam:
             self.camera_calib = CameraCalib(np.load('config/calib.npy'))
         else:
             # automatic calibration
-            print("Automatic calibration is currently not implemented! - please provide a calibration file - use calib.py")
+            logging.error("Automatic calibration is currently not implemented! - please provide a calibration file - use calib.py")
             self.camera_calib = None
             exit()
 
     def getCalibration(self) -> CameraCalib:
         return self.camera_calib
 
-
-    def switch(self) -> None:
-        print("Select Camera to use:")
-        for i, port in enumerate(self.working_ports):
-            print("({}) : {}".format(i, port))
-
-        sel = input()
-        if sel.isnumeric:
-            self.default_port = self.working_ports[int(sel)]
-            print('Switched to {}'.format(self.default_port))
 
     def getWorkingPorts(self) -> List[str]:
         return [port for port in self.working_ports]
@@ -140,6 +173,8 @@ class Webcam:
         port = self.default if self.default is not None else self.default_port
 
         if port is not None:
-            print("Using port {}".format(port))
+            logging.info("Using port {}".format(port))
             self.cam = cv2.VideoCapture(port)
             self.current_port = '/dev/video{}'.format(port)
+            self.frames_total = -1
+            self.frame_n = 0

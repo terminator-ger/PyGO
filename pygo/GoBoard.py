@@ -254,7 +254,7 @@ class GoBoard(DebugInfoProvider, Timing):
 
 
     def detect_board_corners_fast(self, vp1: Point2D, vp2: Point2D, img: B3CImage) -> NDArray:
-        img_bw = self.binarizeImage(img, C=20)
+        img_bw = self.binarizeImage(img, C=10)
         corners = self.get_corners(vp1, vp2, img_bw)
         logging.debug('Corners {}'.format(corners))
  
@@ -324,6 +324,9 @@ class GoBoard(DebugInfoProvider, Timing):
             Returns a binarized image which should clearly show the boards grid
         '''
         img_gray = toYUVImage(img)[:,:,0]
+        #clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8,8))
+        #img_gray = clahe.apply(img_gray)
+        #img_gray = cv2.equalizeHist(img_gray)
         img_bw = cv2.adaptiveThreshold(img_gray,
                                         255,
                                         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
@@ -347,7 +350,7 @@ class GoBoard(DebugInfoProvider, Timing):
 
         # for fast binarization we use a preset threshold, this can fail on extreme 
         # illuminations
-        corners = self.detect_board_corners_fast(None, None, img)
+        corners = self.track_corners(img)
         img_ = img.copy()
 
         if corners is not None:

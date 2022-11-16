@@ -174,78 +174,6 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         a = ((np.mean([dx,dy])/2)**2)*np.pi
         self.params.minArea = a *0.7
         self.params.maxArea = a *1.3
-
-
-    def predict__(self, img: B3CImage):
-        img_c = img.copy()
-        img = toGrayImage(img)
-        img_w = cv2.adaptiveThreshold(img, 255,
-                                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                cv2.THRESH_BINARY, 13, -10)
-
-        circles_w = cv2.HoughCircles(cv2.GaussianBlur(img_w, (3,3), 1), cv2.HOUGH_GRADIENT, 1, 
-                    7, 
-                    param1=20,
-                    param2=20,
-                    minRadius=5,
-                    maxRadius=12,
-                    ).astype(np.int)
-        
-        img_hough=img_w.copy()
-        img_hough = toColorImage(img_hough)
-        if circles_w is not None:
-            for i in circles_w[0,:]:
-                cv2.circle(img_hough, (i[0], i[1]), i[2], (0, 255, 0), 1)
-
-        font                   = cv2.FONT_HERSHEY_SIMPLEX
-        fontScale              = 0.8
-        fontColor              = (255,255,255)
-        thickness              = 1
-        lineType               = 2
-
-        #pdb.set_trace()
-        val = np.ones(self.size**2)*2
-        num_val = np.zeros(self.size**2)
-
-        def analyse(circles):
-            if circles is not None:
-                circles = np.uint16(np.around(circles))
-                for i in circles[0,:]:
-                    on_grid = (self.BOARD.go_board_shifted[:,0] - i[0])**2 + (self.BOARD.go_board_shifted[:,1] - i[1])**2 < i[2]**2
-                    mask = np.zeros_like(img)
-                    if np.any(on_grid):
-                        cv2.circle(img_c, (i[0], i[1]), i[2], (0, 255, 0), 1)
-                        cv2.circle(mask, (i[0], i[1]), i[2], (255), -1)
-                        patch = img[mask.astype(bool)]
-                        if 255-np.median(patch) < 80:
-                            val[np.argwhere(on_grid)] = 0
-                            cv2.putText(img_c, "{}".format(np.median(patch)),
-                                    (int(i[0]), int(i[1])),
-                                    font, 
-                                    fontScale,
-                                    fontColor,
-                                    thickness,
-                                    lineType)
-
-
-                        elif 255-np.median(patch > 180):
-                            val[np.argwhere(on_grid)] = 1
-                            cv2.putText(img_c, "{}".format(np.median(patch)),
-                                    (int(i[0]), int(i[1])),
-                                    font, 
-                                    fontScale,
-                                    fontColor,
-                                    thickness,
-                                    lineType)
-
-
-                        num_val[np.argwhere(on_grid)] = np.median(patch)
-
-        analyse(circles_w)
-        cv2.imshow('Debug', img_c)
-        cv2.waitKey(1)
-        return val.astype(int)
-
   
 
     def segment_on_dt(self, a, img):
@@ -588,6 +516,77 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         return val, detections
 
 '''
+
+
+    def predict__(self, img: B3CImage):
+        img_c = img.copy()
+        img = toGrayImage(img)
+        img_w = cv2.adaptiveThreshold(img, 255,
+                                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                cv2.THRESH_BINARY, 13, -10)
+
+        circles_w = cv2.HoughCircles(cv2.GaussianBlur(img_w, (3,3), 1), cv2.HOUGH_GRADIENT, 1, 
+                    7, 
+                    param1=20,
+                    param2=20,
+                    minRadius=5,
+                    maxRadius=12,
+                    ).astype(np.int)
+        
+        img_hough=img_w.copy()
+        img_hough = toColorImage(img_hough)
+        if circles_w is not None:
+            for i in circles_w[0,:]:
+                cv2.circle(img_hough, (i[0], i[1]), i[2], (0, 255, 0), 1)
+
+        font                   = cv2.FONT_HERSHEY_SIMPLEX
+        fontScale              = 0.8
+        fontColor              = (255,255,255)
+        thickness              = 1
+        lineType               = 2
+
+        #pdb.set_trace()
+        val = np.ones(self.size**2)*2
+        num_val = np.zeros(self.size**2)
+
+        def analyse(circles):
+            if circles is not None:
+                circles = np.uint16(np.around(circles))
+                for i in circles[0,:]:
+                    on_grid = (self.BOARD.go_board_shifted[:,0] - i[0])**2 + (self.BOARD.go_board_shifted[:,1] - i[1])**2 < i[2]**2
+                    mask = np.zeros_like(img)
+                    if np.any(on_grid):
+                        cv2.circle(img_c, (i[0], i[1]), i[2], (0, 255, 0), 1)
+                        cv2.circle(mask, (i[0], i[1]), i[2], (255), -1)
+                        patch = img[mask.astype(bool)]
+                        if 255-np.median(patch) < 80:
+                            val[np.argwhere(on_grid)] = 0
+                            cv2.putText(img_c, "{}".format(np.median(patch)),
+                                    (int(i[0]), int(i[1])),
+                                    font, 
+                                    fontScale,
+                                    fontColor,
+                                    thickness,
+                                    lineType)
+
+
+                        elif 255-np.median(patch > 180):
+                            val[np.argwhere(on_grid)] = 1
+                            cv2.putText(img_c, "{}".format(np.median(patch)),
+                                    (int(i[0]), int(i[1])),
+                                    font, 
+                                    fontScale,
+                                    fontColor,
+                                    thickness,
+                                    lineType)
+
+
+                        num_val[np.argwhere(on_grid)] = np.median(patch)
+
+        analyse(circles_w)
+        cv2.imshow('Debug', img_c)
+        cv2.waitKey(1)
+        return val.astype(int)
     def remove_glare(self, img):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         grayimg = gray
