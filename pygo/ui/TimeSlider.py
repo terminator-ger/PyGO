@@ -44,9 +44,9 @@ class TimeSlider(tk.Frame):
         self.ref.grid(column=0, row=2, sticky=tk.W+tk.E)
         
 
-        w2 = int(self.winfo_width()/2)
-        self.middle_line = self.ref.create_line(w2, 0, w2, 20, fill='#FF0000')
-        self.label = self.ref.create_text(w2, 25, text=self.t)
+        self.w2 = int(self.winfo_width()/2)
+        self.middle_line = self.ref.create_line(self.w2, 0, self.w2, 20, fill='#FF0000')
+        self.label = self.ref.create_text(self.w2, 25, text=self.t)
 
 
         self.inner_canvas.bind("<ButtonPress-1>", self.scroll_begin)
@@ -55,6 +55,11 @@ class TimeSlider(tk.Frame):
         self.inner_canvas.bind('<Button-5>',   self.wheel)  # only with Linux, wheel scroll down
         self.inner_canvas.bind('<Button-4>',   self.wheel)  # only with Linux, wheel scroll up
         self.bind("<Configure>", self.on_resize)
+
+    def _scale_ticks(self, Fx=1.0):
+        self.time_tick_width = self.time_tick_width * Fx
+        self.F = self.time_ticks / self.time_tick_width
+        self.scroll_end = self.pad + (self.to/self.F)
 
     def update_scrollregion(self, win_width=None):    
         if win_width is not None:
@@ -71,24 +76,32 @@ class TimeSlider(tk.Frame):
         
         self.inner_canvas.config(scrollregion=(self.scroll_start-w2, 0, self.scroll_end+w2, 0)) 
         #self.inner_canvas.xview_moveto(fraction)
-        self.set_time_seconds(self.t)
- 
+        self.shift_to_time(self.t)
+
+
 
     def on_resize(self, event=None):
+        '''
+            resizes the window
+        '''
+
         if event is not None:
             w = event.width
         else:
             w = self.winfo_width()
-        w2 = int(w/2)
-        self.ref.coords(self.middle_line, w2, 0, w2, 20)
-        self.ref.coords(self.label, w2, 25)
-        #self.update_scrollregion(w)
-        self.scroll_end = self.pad + (self.to/self.F)
-        self.inner_canvas.config(scrollregion=(self.scroll_start-w2, 0, self.scroll_end+w2, 0)) 
-        self.set_time_seconds(self.t)
+        self.w2 = int(w/2)      # update new window half width
+
+        #update pointer to current timepoint
+        self.ref.coords(self.middle_line, self.w2, 0, self.w2, 20)
+        self.ref.coords(self.label, self.w2, 25)
+
+        # wider window -> adjust scrollbar
+        self.inner_canvas.config(scrollregion=(self.scroll_start-self.w2, 0,
+                                               self.scroll_end+self.w2, 0))
+
+        self.shift_to_time(self.t)
 
  
-        #(l,r) = self.scrollbar.get()
 
     def set_time_fraction(self, *args):
         (ss, se) = self.scrollbar.get()
@@ -98,10 +111,8 @@ class TimeSlider(tk.Frame):
         self.inner_canvas.xview(args[0], args[1])
         max_ = 1.0 - sw
         t_rescaled = self.to / max_
-        time = int(fraction * t_rescaled)
-        #pdb.set_trace()
-        #fraction  = float(fraction) + sw
-        self.update_time(time)
+        time = fraction * t_rescaled
+        self.shift_to_time(time)
 
     def _get_time_from_scrollbar(self) -> int:
         (ss, se) = self.scrollbar.get()
@@ -110,51 +121,60 @@ class TimeSlider(tk.Frame):
         fraction = min(max(0,fraction),1.0-sw)
         max_ = 1.0 - sw
         t_rescaled = self.to / max_
-        time = int(fraction * t_rescaled)
+        time = fraction * t_rescaled
         return time
- 
+    
+    def shift_to_time(self, time: int) -> None:
+        '''
+        receives a timestamp in seconds, adjusts the timeline to match the new position
+        '''
+        # update label
+        if self.t != time:
+            self.t = time
+        self.ref.itemconfigure(self.label, text=str(time))
 
-    def set_time_seconds(self, time):
-        fraction = time / self.to
-        self.inner_canvas.xview_moveto(fraction)
-        time = min(max(time, 0), self.to)
-        self.update_time(time)
+        # reset view
+        (ss, se) = self.scrollbar.get()
+        sw = (se-ss) 
+        max_ = 1.0 - sw
+        t_end_rescaled = self.to / max_
+        rel_pos = self.t 
+        if rel_pos != 0:
+            rel_pos = rel_pos / t_end_rescaled
+        self.inner_canvas.xview_moveto(rel_pos)
 
 
-    def update_time(self, time=None):
-        if time is None:
-            time = self._get_time_from_scrollbar()
-            #time = int(float(self.scrollbar.get()[0]) * self.to)
-            #print(time)
-
+    def update_time_from_scrollbar(self):
+        time = self._get_time_from_scrollbar()
         self.t = time
         self.ref.itemconfigure(self.label, text=str(time))
 
     def scroll_begin(self, event):
         self.inner_canvas.scan_mark(event.x, 0)
-        self.update_time()
+        self.update_time_from_scrollbar()
 
     def scroll_move(self, event):
         self.inner_canvas.scan_dragto(event.x, 0, gain=1)
-        self.update_time()
+        self.update_time_from_scrollbar()
 
     def wheel(self, event):
         scale = 1.0
         # Respond to Linux (event.num) or Windows (event.delta) wheel event
         if event.num == 5 or event.delta == -120:  # scroll down
-            self.F *= 1.25
-            scale *= 1.25
+            scale *= 1.1
         if event.num == 4 or event.delta == 120:  # scroll up
-            self.F /= 1.25
-            scale /= 1.25
-        #x = self.inner_canvas.canvasx(event.x)
-        #y = self.inner_canvas.canvasy(event.y)
-        #self.inner_canvas.scale('all', x, y, scale, 1.0)
+            scale /= 1.1
+
+        self._scale_ticks(scale)
+
         self.scale_timeline()
         self._scale_stones()
         self.update_scrollregion()
 
     def scale_timeline(self):
+        '''
+            Redraws the timeline with the updated tick width
+        '''
         h = 150
         h2 = int(h/2)
         bot = 15
