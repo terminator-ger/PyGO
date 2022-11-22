@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Callable
 import logging
+from unittest import signals
 
 class Signals(ABC):
     subs = {}
@@ -52,10 +53,33 @@ class OnGridSizeUpdated(Signals):
 class UpdateLog(Signals):
     pass
 
+class UpdateHistory(Signals):
+    pass
+
 class NewMove(Signals):
     pass
 
+
+# Video Navigation
 class VideoFrameCounterUpdated(Signals):
+    pass
+
+class InputStreamSeek(Signals):
+    pass
+
+class InputBackward(Signals):
+    pass
+
+class InputBackward10(Signals):
+    pass
+
+class InputForward(Signals):
+    pass
+
+class InputForward10(Signals):
+    pass
+
+class PreviewNextFrame(Signals):
     pass
 
 # Game tree navigation and playing moves

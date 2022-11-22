@@ -47,6 +47,8 @@ class PyGO(Timing):
         Signals.subscribe(GamePause, self.freeze)
         Signals.subscribe(GameNew, self.startNewGame)
         Signals.subscribe(DetectHandicap, self.__analyzeHandicap)
+        Signals.subscribe(UpdateHistory, self.update_history)
+        Signals.subscribe(PreviewNextFrame, self.__force_image_load)
 
     def freeze(self, *args) -> None:
         self.input_is_frozen = True 
@@ -63,6 +65,12 @@ class PyGO(Timing):
         else:
             logging.warning('No Board detected - make sure to place the board \
                              in the cameras center')
+
+    def __force_image_load(self, args) -> None:
+        if self.Board.hasEstimate:
+            self.img_cam = self.input_stream.read_ignore_lock()
+            self.img_cropped = self.Board.extract(self.img_cam)
+ 
 
     def startNewGame(self, size=19) -> None:
         #unfreeze to allow reading of new frame
@@ -97,6 +105,18 @@ class PyGO(Timing):
     def loop(self) -> None:
         while (True):
             self.run_once()
+
+
+    def update_history(self, args):
+        val = args[0]
+        new_move = args[1]
+        colour = args[2]
+        img = self.img_cropped
+        t = self.input_stream.get_time()
+        self.History.update(img, t, val, new_move, colour)
+        Signals.emit(NewMove, t, colour)    # notify timebar
+
+
     
     def run_once(self) -> None:
             if not self.input_is_frozen:
@@ -131,11 +151,11 @@ class PyGO(Timing):
                                                         self.Game.last_y)
 
 
-                        new_move_added = self.Game.updateState(val)
-                        self.History.update(self.img_cropped,
-                                                self.input_stream.get_pos(),
-                                                val,
-                                                new_move_added)
+                        self.Game.updateState(val)
+                        #self.History.update(self.img_cropped,
+                        #                        self.input_stream.get_pos(),
+                        #                        val,
+                        #                        new_move_added,)
 
 
                         #if self.Katrain is not None:

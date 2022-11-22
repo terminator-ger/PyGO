@@ -1,7 +1,7 @@
 import os
 import cv2
 import numpy as np
-
+from tkinter import W
 from typing import Optional, Tuple, List
 
 from pygo.Signals import *
@@ -21,11 +21,48 @@ class Webcam:
         self.last_frame = None
         self.frames_total = None
         self.frame_n = None
+        self.fps = 1
 
         self.__update_ports()
         self.__auto_calibrate()
         Signals.subscribe(GamePause, self.pause_stream)
         Signals.subscribe(GameRun, self.unpause_stream)
+        Signals.subscribe(InputStreamSeek, self.set_pos)
+
+        Signals.subscribe(InputForward, self._forward)
+        Signals.subscribe(InputForward10, self._forward10)
+        Signals.subscribe(InputBackward, self._backward)
+        Signals.subscribe(InputBackward10, self._backward10)
+
+    def _forward(self, args):
+        cur = self.get_pos()  / self.fps
+        next = cur + 60 
+        self.frame_n = min(next, self.frames_total)
+        self._set_pos(self.frame_n)
+        Signals.emit(PreviewNextFrame)
+
+    def _forward10(self, args):
+        cur = self.get_pos()  / self.fps
+        next = cur + 10 
+        self.frame_n = min(next, self.frames_total)
+        self._set_pos(self.frame_n)
+        Signals.emit(PreviewNextFrame)
+
+
+    def _backward(self, args):
+        cur = self.get_pos()  / self.fps
+        next = cur - 60
+        self.frame_n = max(next, 0)
+        self._set_pos(self.frame_n)
+        Signals.emit(PreviewNextFrame)
+
+
+    def _backward10(self, args):
+        cur = self.get_pos()  / self.fps
+        next = cur - 10
+        self.frame_n = max(next, 0)
+        self._set_pos(self.frame_n)
+        Signals.emit(PreviewNextFrame)
 
 
     def pause_stream(self, *args):
@@ -47,10 +84,27 @@ class Webcam:
         return fp
 
 
-    def set_pos(self, frame: int) -> None:
+    def get_time(self) -> Optional[float]:
+        '''
+            returns time in with seconds as base
+            5.2 -> 5 sec 200 ms
+        '''
+        f = self.cam.get(cv2.CAP_PROP_POS_FRAMES)
+        return f / self.fps
+
+
+    def set_pos(self, args) -> None:
+        '''
+            set the time in floating second format
+        '''
+        self._set_pos(args[0])
+
+    
+    def _set_pos(self, time: int) -> None:
+        frame = int(time * self.fps)
         logging.info("Video set to {}".format(frame))
         max_len = self.get_length()
-        if max_len is not None and frame > 0 and frame < max_len:
+        if max_len is not None and frame >= 0 and frame < max_len:
             self.cam.set(cv2.CAP_PROP_POS_FRAMES, frame)
 
 
@@ -58,6 +112,7 @@ class Webcam:
         self.cam.release()
         self.cam = cv2.VideoCapture(file)
         self.current_port = file
+        self.fps = self.cam.get(cv2.CAP_PROP_FPS)
 
         self.frames_total = self.cam.get(cv2.CAP_PROP_FRAME_COUNT)
         if self.frames_total == -1:
@@ -83,30 +138,25 @@ class Webcam:
         if not ret:
             return self.last_frame
         if self.limit_resolution:
-                img_ = cv2.resize(img, dsize=None, 
-                                fx = self.scale_factor, 
-                                fy = self.scale_factor)
+            img_ = cv2.resize(img, dsize=None, 
+                            fx = self.scale_factor, 
+                            fy = self.scale_factor)
 
-                if self.dx > 0 and self.dy > 0:
-                    img_ = img_[self.dx//2 : -self.dx//2, self.dy//2: -self.dy//2]
-                elif self.dx == 0 and self.dy > 0:
-                    img_ = img_[:, self.dy//2: -self.dy//2]
-                elif self.dy == 0 and self.dx > 0:
-                    img_ = img_[self.dx//2: -self.dx//2]
-                img = img_
-                #img = cv2.fastNlMeansDenoising(img, 
-                #                            templateWindowSize=5, 
-                #                            searchWindowSize=7)
-                #kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-                #img = cv2.filter2D(img, -1, kernel)
-                self.last_frame = img
-                # only increment for live videos
-                if self.frames_total == -1:
-                    self.frame_n += 1
-                else:
-                    # notify ui of video progress
-                    Signals.emit(VideoFrameCounterUpdated, self.get_pos())
-        
+            if self.dx > 0 and self.dy > 0:
+                img_ = img_[self.dx//2 : -self.dx//2, self.dy//2: -self.dy//2]
+            elif self.dx == 0 and self.dy > 0:
+                img_ = img_[:, self.dy//2: -self.dy//2]
+            elif self.dy == 0 and self.dx > 0:
+                img_ = img_[self.dx//2: -self.dx//2]
+            img = img_
+            #img = cv2.fastNlMeansDenoising(img, 
+            #                            templateWindowSize=5, 
+            #                            searchWindowSize=7)
+            #kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+            #img = cv2.filter2D(img, -1, kernel)
+            self.last_frame = img
+            # only increment for live videos
+
         return img
 
     def read_ignore_lock(self) -> np.ndarray:
@@ -116,7 +166,14 @@ class Webcam:
         if self.__is_paused:
             return None
         else:
-            return self.__get_next_frame()
+            frame = self.__get_next_frame()
+            # notify ui of video progress
+            if self.frames_total == -1:
+                self.frame_n += 1
+            else:
+                Signals.emit(VideoFrameCounterUpdated, self.get_time())
+            return frame
+ 
 
 
     def release(self) -> None:

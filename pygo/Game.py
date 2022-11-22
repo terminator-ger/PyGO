@@ -406,20 +406,17 @@ class Game(DebugInfoProvider, Timing):
         return working_state
 
 
-    def updateState(self, state) -> bool:
+    def updateState(self, state) -> None:
         '''
         input detected state from classifier
         '''
         state = self.applyManualMoves(self._unravel(state))
         if self.GS == GameState.RUNNING:
-            has_new_move = self.updateStateWithChecks(state)
+            self.updateStateWithChecks(state)
 
             if self.settings['MoveValidation'] == MoveValidationAlg.TWO_MOVES:
                 # run a second time in case we have two moves 
-                if not np.array_equal(self.state, state):
-                    new_move_2 = self.updateStateWithChecks(state)
-                    has_new_move = (has_new_move or new_move_2)
-            return has_new_move
+                self.updateStateWithChecks(state)
    
 
         elif self.GS == GameState.PAUSED:
@@ -510,18 +507,16 @@ class Game(DebugInfoProvider, Timing):
 
         isInTree, notInTree = self.whichMovesAreInTheGameTree(state)
         
-        contains_new_move = False
         for (c_str, (x,y)) in notInTree:
             if c_str !='E':
                 logging.debug('Adding {} at {} {}'.format(c_str, x, y))
                 self._setStone(x, y, c_str)
-                contains_new_move = True
+                Signals.emit(UpdateHistory, state, True, c_str)
 
             if c_str == 'E':
                 logging.debug('Removing {} at {} {}'.format(c_str, x, y))
                 self._captureStone(x, y)
-                contains_new_move = True
-        return contains_new_move
+                Signals.emit(UpdateHistory, state, False, c_str)
 
 
 

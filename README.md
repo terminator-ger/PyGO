@@ -20,7 +20,7 @@ pip install -r requirements.txt
 to install opencv_contrib_python, numpy, scipy, nptyping, scikit-image, sgfmill, playsound, pygobject
 
 ```python
-python setup.py install 
+python setup.py install
 ```
 
 ## Run PyGO

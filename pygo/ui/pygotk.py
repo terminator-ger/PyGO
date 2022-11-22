@@ -21,6 +21,7 @@ from pygo.utils.debug import DebugInfo
 from pygo.utils.color import C2N
 from pygo.Game import  GameState
 from pygo.Signals import *
+from pygo.ui.TimeSlider import TimeSlider
 
 class PyGOTk:
     #types
@@ -144,24 +145,13 @@ class PyGOTk:
 
 
         ''' History and Video Tools '''
-        self.video_edit = tk.LabelFrame(self.pane_left, text='Detections')
-        self.video_edit.grid(column=0, row=2, sticky=tk.W+tk.E, padx=2)
-        self.video_edit.columnconfigure(0, weight=1)
 
-        self.video_slider = tk.Scale(self.video_edit,
-                                from_=0,
-                                to=1,
-                                orient='horizontal',
-                                command=self.seek,
-                                sliderlength=5,
-                                showvalue=False,
-                                length=600)
-        self.tick_canvas = tk.Canvas(self.video_edit, height=20)
-
-        self.tick_canvas.grid(row=0, column=0, sticky=tk.W+tk.E, padx=5)
-        self.video_slider.grid(row=1, column=0, sticky=tk.W+tk.E, padx=5)
-
- 
+        self.time_slider_box = tk.LabelFrame(self.pane_left, text='Timeline')
+        self.time_slider_box.grid(column=0, row=3, sticky=tk.W+tk.E, padx=2)
+        self.time_slider_box.columnconfigure(0, weight=1)
+        self.time_slider = TimeSlider(self.time_slider_box, self.pygo)
+        self.time_slider.grid(row=0, column=0, sticky=tk.W+tk.E, padx=5)
+        self.hide_video_ui()
 
         self._next_job = None
         self.QUIT = False
@@ -183,16 +173,16 @@ class PyGOTk:
 
         self.moveHistory = []
 
-        self.seek_job = None
         Signals.subscribe(UpdateLog, self.updateLog)
         Signals.subscribe(OnBoardDetected, self.updateGrid)
         Signals.subscribe(GameReset, self.__clear_log)
         Signals.subscribe(NewMove, self.videoAddNewMove)
         Signals.subscribe(VideoFrameCounterUpdated, self.video_frame_counter_udpated)
 
+
     def video_frame_counter_udpated(self, args):
         cnt = args[0]
-        self.video_slider.set(int(cnt))
+        self.time_slider.shift_to_time(int(cnt))
  
 
     def save_image(self):
@@ -203,14 +193,17 @@ class PyGOTk:
     def onDetectHandicap(self):
         Signals.emit(DetectHandicap)
 
-    def videoAddNewMove(self, *args):
-        ts = args[0][0]
+    def videoAddNewMove(self, args):
+        ts = args[0]
+        colour = args[1]
         if ts is not None:
-            width = self.video_slider.winfo_width()
-            steps = self.pygo.input_stream.frames_total
+            self.time_slider.draw_stone(ts, colour)
+            #width = self.video_slider.winfo_width()
 
-            rel = width / steps * ts
-            self.tick_canvas.create_line(rel, 0, rel, 20)
+            #steps = self.pygo.input_stream.frames_total
+
+            #rel = width / steps * ts
+            #self.tick_canvas.create_line(rel, 0, rel, 20)
 
 
 
@@ -235,22 +228,13 @@ class PyGOTk:
         return (x_board, y_board)
 
     def hide_video_ui(self):
-        self.video_edit.grid_forget
+        self.time_slider_box.grid_forget()
 
     def show_video_ui(self):
-        self.video_slider.configure(to=self.pygo.input_stream.get_length())
-        self.video_edit.grid(column=0, row=2)
+        self.time_slider_box.grid(column=0, row=2)
+        self.time_slider.on_update_time(self.pygo.input_stream.get_length())
 
-    def seek(self, event):
-        if self.seek_job:
-            self.root.after_cancel(self.seek_job)
-        self.seek_job = self.root.after(500, self._set_frame_pos)
-
-    def _set_frame_pos(self) -> None:
-        val = self.video_slider.get()
-        self.pygo.input_stream.set_pos(val)
-
-
+ 
     def leftMouseOnGOBoard(self, event):
         if self.pygo.Game.GS != GameState.NOT_STARTED:
             x_board, y_board = self.__eventCoordsToGameCoords(event)
@@ -270,17 +254,24 @@ class PyGOTk:
                 self.contextMenu.entryconfig("Black", state="normal")
             self.contextMenu.tk_popup(event.x_root, event.y_root)
 
+
     def addManualWhite(self) -> None:
         c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
         c_y = self.contextMenu.winfo_y() - self.go_board_display.winfo_rooty()
         x,y = self.__coordsToGameCoords(c_x, c_y)
         self.pygo.Game.setManual(x,y,C2N('W'))
+        ts = self.pygo.input_stream.get_time()
+        self.time_slider.draw_stone(ts, 'W')
+
 
     def addManualBlack(self) -> None:
         c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
         c_y = self.contextMenu.winfo_y() - self.go_board_display.winfo_rooty()
         x,y = self.__coordsToGameCoords(c_x, c_y)
         self.pygo.Game.setManual(x,y,C2N('B'))
+        ts = self.pygo.input_stream.get_time()
+        self.time_slider.draw_stone(ts, 'W')
+
 
     def addManualNone(self) -> None:
         c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
@@ -298,6 +289,7 @@ class PyGOTk:
 
     def freeze(self, event=None) -> None:
         self.pygo.freeze()
+
 
     def GameTogglePauseResume(self, event=None) -> None:
         if self.pygo.Game.GS == GameState.RUNNING:
@@ -356,6 +348,7 @@ class PyGOTk:
             self.pygo.input_stream.set_input_file_stream(dev_id)
             Signals.emit(GameReset, 19)
             self.hide_video_ui()
+            self.go_tree_pause["state"] = "normal"
         else:
             self.video_str = fd.askopenfilename(filetypes=[('mp4', '*.mp4'),
             ])
@@ -363,6 +356,7 @@ class PyGOTk:
                 self.pygo.input_stream.set_input_file_stream(self.video_str)
                 self.onGameNew()
                 self.show_video_ui()
+                self.go_tree_pause["state"] = "disabled"
 
 
 
