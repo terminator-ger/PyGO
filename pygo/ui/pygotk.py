@@ -353,9 +353,9 @@ class PyGOTk:
             self.video_str = fd.askopenfilename(filetypes=[('mp4', '*.mp4'),
             ])
             if self.video_str:
+                self.show_video_ui()
                 self.pygo.input_stream.set_input_file_stream(self.video_str)
                 self.onGameNew()
-                self.show_video_ui()
                 self.go_tree_pause["state"] = "disabled"
 
 

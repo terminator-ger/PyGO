@@ -13,8 +13,8 @@ class TimeSlider(tk.Frame):
         self.pygo = pygo
         # we have two times one for where the current playback is and 
         # one for the cursors position
-        self.t = 0
-        self.t_cursor = 0
+        self.t = 0          # position of black cursor
+        self.t_cursor = 0   # position of red cursor
         self.to = 240
         self.time_ticks = 60            # place a tick every n seconds
         self.time_tick_width = 80       # space in px between ticks
@@ -103,7 +103,7 @@ class TimeSlider(tk.Frame):
 
         self.middle_line = self.ref.create_line(self.w2, 0, self.w2, 20, fill='#FF0000', width=2)
         
-        self.label = self.ref.create_text(self.w2, 25, text=time.strftime('%H:%M:%S', time.gmtime(self.t)))
+        self.label = self.ref.create_text(self.w2, 25, text=time.strftime('%H:%M:%S', time.gmtime(0)))
 
 
         self.seek_job = None
@@ -117,16 +117,33 @@ class TimeSlider(tk.Frame):
         self._update_buttons(0)
         self.shift_to_time(0)
 
+
     def seek(self, event):
         if self.seek_job:
             self.after_cancel(self.seek_job)
         self.seek_job = self.after(500, self._update_buttons, self.t_cursor, True)
 
+
     def seek_back(self):
         Signals.emit(InputBackward)
-
+        val = self.pygo.input_stream.get_time()
+        self.shift_to_time(val, cursor_only=True)
+ 
     def seek_back10(self):
         Signals.emit(InputBackward10)
+        val = self.pygo.input_stream.get_time()
+        self.shift_to_time(val, cursor_only=True)
+ 
+    def seek_forward(self):
+        Signals.emit(InputForward)
+        val = self.pygo.input_stream.get_time()
+        self.shift_to_time(val, cursor_only=True)
+    
+    def seek_forward10(self):
+        Signals.emit(InputForward10)
+        val = self.pygo.input_stream.get_time()
+        self.shift_to_time(val, cursor_only=True)
+ 
 
     def play_pause_red(self):
         val = self.t_cursor
@@ -170,13 +187,6 @@ class TimeSlider(tk.Frame):
 
 
 
-    def seek_forward(self):
-        Signals.emit(InputForward)
-    
-    def seek_forward10(self):
-        Signals.emit(InputForward10)
-
-
     def _set_frame_pos(self) -> None:
         val = self.t_cursor
         Signals.emit(InputStreamSeek, val)
@@ -184,10 +194,10 @@ class TimeSlider(tk.Frame):
 
     def on_update_time(self, total_seconds: float) -> None:
         self.to = total_seconds
-        self.t = 0
         self.t_cursor = 0
         self._scale_ticks()
         self._draw()
+        self.shift_to_time(0)
 
     def get_cursor_time(self) -> float:
         return self.t_cursor
@@ -224,6 +234,7 @@ class TimeSlider(tk.Frame):
         time = fraction * t_rescaled
         time = max(min(time, self.to),0)
         self.shift_to_time(time, cursor_only=True)
+        self.seek()
 
     def _get_time_from_scrollbar(self) -> int:
         (ss, se) = self.scrollbar.get()
@@ -246,7 +257,7 @@ class TimeSlider(tk.Frame):
         else:
             self.t = new_time
             self.t_cursor = new_time
-
+        
         t_str = time.strftime('%H:%M:%S', time.gmtime(int(new_time)))
         self.ref.itemconfigure(self.label, text=t_str)
 
@@ -264,7 +275,8 @@ class TimeSlider(tk.Frame):
         
         if new_time != 0:
             new_time /= t_end_rescaled
-
+        
+        logging.debug2("Time update, moving to {}".format(new_time))
         self.inner_canvas.xview_moveto(new_time)
 
 
@@ -314,8 +326,10 @@ class TimeSlider(tk.Frame):
         b_minor = h-(4*bot)
         start = self.data_start
         end = self.data_end
+        ipt_time = self.pygo.input_stream.get_time()
+        T = ipt_time / self.F
 
-        self.inner_canvas.coords("cur_time", start+(self.t/self.F), t, start+(self.t/self.F), b)
+        self.inner_canvas.coords("cur_time", start+T, t, start+T, b)
         self.inner_canvas.coords('timeline',    start,   h2, end,     h2)
         self.inner_canvas.coords("line_start",  start-2, t,  start-2, b)
         self.inner_canvas.coords("line_end0",   end,     t,  end,     b)
@@ -353,7 +367,9 @@ class TimeSlider(tk.Frame):
             self.w2 = win_width / 2
         else:
             self.w2 = self.winfo_width() / 2
- 
+
+        logging.debug2("Scrolling to {}".format(self.scroll_start))
+
         self.inner_canvas.config(scrollregion=(self.scroll_start, 0, 
                                                self.scroll_end, 0)) 
  
@@ -368,9 +384,9 @@ class TimeSlider(tk.Frame):
 
         t_minor = 4*bot
         b_minor = h-(t_minor)
-
-        self.inner_canvas.create_line(self.data_start+(self.t/self.F), t_major, 
-                                      self.data_start+(self.t/self.F), b_major, tags="cur_time",
+        T = self.pygo.input_stream.get_time() / self.F
+        self.inner_canvas.create_line(self.data_start+T, t_major, 
+                                      self.data_start+T, b_major, tags="cur_time",
                                       width=2)
 
         self.inner_canvas.create_line(self.data_start, h2, 
@@ -398,7 +414,7 @@ class TimeSlider(tk.Frame):
                 id = self.inner_canvas.create_line(self.data_start + (sec/self.F), t_minor, 
                                                 self.data_start + (sec/self.F), b_minor)
                 self.lines_tick_minor.append((sec,id))
- 
+        self.inner_canvas.xview_moveto(0)
 
     def _scale_stones(self):
         for (id, time) in self.stones:
