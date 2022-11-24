@@ -176,13 +176,13 @@ class PyGOTk:
         Signals.subscribe(UpdateLog, self.updateLog)
         Signals.subscribe(OnBoardDetected, self.updateGrid)
         Signals.subscribe(GameReset, self.__clear_log)
-        Signals.subscribe(NewMove, self.videoAddNewMove)
+        Signals.subscribe(UIDrawStoneOnTimeline, self.videoAddNewMove)
         Signals.subscribe(VideoFrameCounterUpdated, self.video_frame_counter_udpated)
 
 
     def video_frame_counter_udpated(self, args):
         cnt = args[0]
-        self.time_slider.shift_to_time(int(cnt))
+        self.time_slider.shift_to_time(cnt)
  
 
     def save_image(self):
@@ -194,16 +194,10 @@ class PyGOTk:
         Signals.emit(DetectHandicap)
 
     def videoAddNewMove(self, args):
-        ts = args[0]
-        colour = args[1]
+        colour = args[0]
+        ts = args[1]
         if ts is not None:
             self.time_slider.draw_stone(ts, colour)
-            #width = self.video_slider.winfo_width()
-
-            #steps = self.pygo.input_stream.frames_total
-
-            #rel = width / steps * ts
-            #self.tick_canvas.create_line(rel, 0, rel, 20)
 
 
 
@@ -232,7 +226,6 @@ class PyGOTk:
 
     def show_video_ui(self):
         self.time_slider_box.grid(column=0, row=2)
-        self.time_slider.on_update_time(self.pygo.input_stream.get_length())
 
  
     def leftMouseOnGOBoard(self, event):
@@ -355,6 +348,7 @@ class PyGOTk:
             if self.video_str:
                 self.show_video_ui()
                 self.pygo.input_stream.set_input_file_stream(self.video_str)
+                self.time_slider.on_update_time(self.pygo.input_stream.get_length())
                 self.onGameNew()
                 self.go_tree_pause["state"] = "disabled"
 

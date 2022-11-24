@@ -78,12 +78,12 @@ class TimeSlider(tk.Frame):
         self.img_fw10    = self.img_fw10.resize((32,32), Image.ANTIALIAS) 
         self.img_pause   = self.img_pause.resize((32,32), Image.ANTIALIAS)
 
-        self.img_btn_fb =    ImageTk.PhotoImage(self.img_fb)
-        self.img_btn_fb10 =  ImageTk.PhotoImage(self.img_fb10)
-        self.img_btn_pr =    ImageTk.PhotoImage(self.img_pr)
-        self.img_btn_p =     ImageTk.PhotoImage(self.img_p)
-        self.img_btn_fw =    ImageTk.PhotoImage(self.img_fw)
-        self.img_btn_fw10 =  ImageTk.PhotoImage(self.img_fw10)
+        self.img_btn_fb    = ImageTk.PhotoImage(self.img_fb)
+        self.img_btn_fb10  = ImageTk.PhotoImage(self.img_fb10)
+        self.img_btn_pr    = ImageTk.PhotoImage(self.img_pr)
+        self.img_btn_p     = ImageTk.PhotoImage(self.img_p)
+        self.img_btn_fw    = ImageTk.PhotoImage(self.img_fw)
+        self.img_btn_fw10  = ImageTk.PhotoImage(self.img_fw10)
         self.img_btn_pause = ImageTk.PhotoImage(self.img_pause)
 
         self.nav_btn_fb         = tk.Button(self.navigation_buttons, image=self.img_btn_fb,   width=35, command=self.seek_back)
@@ -329,7 +329,7 @@ class TimeSlider(tk.Frame):
         ipt_time = self.pygo.input_stream.get_time()
         T = ipt_time / self.F
 
-        self.inner_canvas.coords("cur_time", start+T, t, start+T, b)
+        self.inner_canvas.coords("cur_time",    start+T, t,  start+T, b)
         self.inner_canvas.coords('timeline',    start,   h2, end,     h2)
         self.inner_canvas.coords("line_start",  start-2, t,  start-2, b)
         self.inner_canvas.coords("line_end0",   end,     t,  end,     b)

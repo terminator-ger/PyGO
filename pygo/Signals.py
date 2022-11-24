@@ -82,6 +82,8 @@ class InputForward10(Signals):
 class PreviewNextFrame(Signals):
     pass
 
+
+
 # Game tree navigation and playing moves
 class GameTreeBack(Signals):
     pass
@@ -105,4 +107,7 @@ class GameHandicapMove(Signals):
     pass
 
 class GameReset(Signals):
+    pass
+
+class UIDrawStoneOnTimeline(Signals):
     pass

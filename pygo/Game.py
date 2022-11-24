@@ -15,7 +15,7 @@ from pygo.utils.image import toByteImage
 from pygo.utils.color import N2C, C2N, COLOR, CNOT
 from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
 from pygo.utils.typing import Move, NetMove, GoBoardClassification
-from pygo.utils.misc import coordinate_to_letter, pygo_to_go_coord_sys, sgfmill_to_pygo_coord_sys
+from pygo.utils.misc import coordinate_to_letter, pygo_to_go_coord_sys, pygo_to_sgfmill_coord_sys, sgfmill_to_pygo_coord_sys
 from pygo.Signals import *
 
 
@@ -287,7 +287,7 @@ class Game(DebugInfoProvider, Timing):
         # sgf mill accepts points as (row, col) with 
         # a coordinate systems used on go board not in sgf (inverted y-axis!)
 
-        mill_x, mill_y = (self.board_size-y), x
+        mill_x, mill_y = pygo_to_sgfmill_coord_sys((x,y))
 
         #import pdb
         #pdb.set_trace()
@@ -474,7 +474,7 @@ class Game(DebugInfoProvider, Timing):
                 if c_str == "B":
                     self.state[x,y] = C2N("B")
 
-                    mill_x, mill_y = (self.board_size-y), x
+                    mill_x, mill_y = pygo_to_sgfmill_coord_sys((x,y))
                     moves_black.append((mill_x,mill_y))
 
             BoardSetup.apply_setup(moves_black, moves_white, [])
@@ -499,24 +499,22 @@ class Game(DebugInfoProvider, Timing):
         if np.array_equal(state, self.state):
             logging.debug('No Difference found')
             return
-        logging.debug2('before validity check') 
-        logging.debug2(state.reshape(19,19))
-        state = self._simple_move_validity_check(state)
-        logging.debug2('after validity check') 
-        logging.debug2(state.reshape(19,19))
 
+        Signals.emit(UpdateHistory, state)
+
+        state = self._simple_move_validity_check(state)
         isInTree, notInTree = self.whichMovesAreInTheGameTree(state)
         
         for (c_str, (x,y)) in notInTree:
             if c_str !='E':
                 logging.debug('Adding {} at {} {}'.format(c_str, x, y))
                 self._setStone(x, y, c_str)
-                Signals.emit(UpdateHistory, state, True, c_str)
+                Signals.emit(GameNewMove, c_str)    # notify timebar
 
             if c_str == 'E':
                 logging.debug('Removing {} at {} {}'.format(c_str, x, y))
                 self._captureStone(x, y)
-                Signals.emit(UpdateHistory, state, False, c_str)
+
 
 
 
@@ -557,7 +555,7 @@ class Game(DebugInfoProvider, Timing):
         y = coords[1]
         c_str = stone
 
-        mill_x, mill_y = (self.board_size-y), x
+        mill_x, mill_y = ((self.board_size-1)-y), x
 
         self.game_tree.get_last_node().set_move(c_str.lower(),(mill_x,mill_y))
         self.game_tree.extend_main_sequence()

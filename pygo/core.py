@@ -46,6 +46,7 @@ class PyGO(Timing):
         Signals.subscribe(GameRun, self.unfreeze)
         Signals.subscribe(GamePause, self.freeze)
         Signals.subscribe(GameNew, self.startNewGame)
+        Signals.subscribe(GameNewMove, self._notify_ui_new_move)
         Signals.subscribe(DetectHandicap, self.__analyzeHandicap)
         Signals.subscribe(UpdateHistory, self.update_history)
         Signals.subscribe(PreviewNextFrame, self.__force_image_load)
@@ -109,13 +110,17 @@ class PyGO(Timing):
 
     def update_history(self, args):
         val = args[0]
-        new_move = args[1]
-        colour = args[2]
-        img = self.img_cropped
+        #new_move = args[1]
+        #colour = args[2]
+        #img = self.img_cropped
         t = self.input_stream.get_time()
-        self.History.update(img, t, val, new_move, colour)
-        Signals.emit(NewMove, t, colour)    # notify timebar
+        self.History.update(t, val)
 
+
+    def _notify_ui_new_move(self, args):
+        colour = args[0]
+        t = self.input_stream.get_time()
+        Signals.emit(UIDrawStoneOnTimeline, colour, t)
 
     
     def run_once(self) -> None:

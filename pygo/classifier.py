@@ -52,7 +52,10 @@ class debugkeys(Enum):
     GRID = auto()
     BIN = auto()
     CIRCLE = auto()
-    DETECT = auto()
+    #DETECT = auto()
+    DETECT0 = auto()    # circle
+    DETECT1 = auto()
+    DETECT2 = auto()
 
 
 @dataclass
@@ -120,6 +123,8 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         detections_hidden = self._detect_hidden_intersection(img.copy())
         detections_blobb  = self._detect_blobb(img.copy())
 
+
+
         cell_w = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))//2).astype(int)
 
         # initial markers
@@ -128,26 +133,63 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         id = 2
         detected_circles = []
         img_detect = img.copy()
+        img_detect0 = img.copy()
+        img_detect1 = img.copy()
+        img_detect2 = img.copy()
         font = cv2.FONT_HERSHEY_SIMPLEX
         fontScale = .7
         color = (255, 0, 0)
         color_detect = (0, 255, 0)
         thickness = 2
         for coord in self.BOARD.go_board_shifted.astype(int):
-            isin_circle = np.all(np.equal(coord, detections_circle),axis=1).any() if len(detections_circle) > 0 else False
-            isin_hidden = np.all(np.equal(coord, detections_hidden),axis=1).any() if len(detections_hidden) > 0 else False
-            isin_blobb  = np.all(np.equal(coord, detections_blobb),axis=1).any() if len(detections_blobb) > 0 else False
-            detect_count = np.sum([isin_circle, isin_hidden, isin_blobb])
+            isin_circle = np.all(np.equal(coord, detections_circle),axis=1).any() if len(detections_circle) > 0 else np.array([False])
+            isin_hidden = np.all(np.equal(coord, detections_hidden),axis=1).any() if len(detections_hidden) > 0 else np.array([False])
+            isin_blobb  = np.all(np.equal(coord, detections_blobb),axis=1).any() if len(detections_blobb)   > 0 else np.array([False])
+
+            isin_circle = isin_circle.astype(int)
+            isin_hidden = isin_hidden.astype(int)
+            isin_blobb = isin_blobb.astype(int)
+            #detect_count = np.sum([isin_circle, isin_hidden, isin_blobb])
   
-            cv2.putText(img=img_detect, 
-                        text=str(detect_count), 
+            #cv2.putText(img=img_detect, 
+            #            text=str(detect_count), 
+            #            org=coord+np.array([-5,5]), 
+            #            fontFace=font,
+            #            fontScale=fontScale, 
+            #            color=color if detect_count <2 else color_detect, 
+            #            thickness=thickness, 
+            #            lineType=cv2.LINE_AA)
+
+            cv2.putText(img=img_detect0, 
+                        text=str(isin_circle), 
                         org=coord+np.array([-5,5]), 
                         fontFace=font,
                         fontScale=fontScale, 
-                        color=color if detect_count <2 else color_detect, 
+                        color=color if isin_circle > 0 else color_detect, 
                         thickness=thickness, 
                         lineType=cv2.LINE_AA)
-            if detect_count >= 2:
+
+            cv2.putText(img=img_detect1, 
+                        text=str(isin_hidden), 
+                        org=coord+np.array([-5,5]), 
+                        fontFace=font,
+                        fontScale=fontScale, 
+                        color=color if isin_hidden > 0 else color_detect, 
+                        thickness=thickness, 
+                        lineType=cv2.LINE_AA)
+
+            cv2.putText(img=img_detect2, 
+                        text=str(isin_blobb), 
+                        org=coord+np.array([-5,5]), 
+                        fontFace=font,
+                        fontScale=fontScale, 
+                        color=color if isin_blobb > 0 else color_detect, 
+                        thickness=thickness, 
+                        lineType=cv2.LINE_AA)
+
+            p_stone = isin_circle * 0.25 + isin_hidden * 0.5 + isin_blobb * 0.25
+
+            if p_stone >= 0.5:
                 cv2.circle(markers, coord, cell_w+3, 0, -1)
                 cv2.circle(markers, coord, 2, id, 2)
 
@@ -156,7 +198,9 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
                 detected_circles.append([crl])
                 id += 1
 
-        self.showDebug(debugkeys.DETECT, img_detect)
+        self.showDebug(debugkeys.DETECT0, img_detect0)
+        self.showDebug(debugkeys.DETECT1, img_detect1)
+        self.showDebug(debugkeys.DETECT2, img_detect2)
         self.showDebug(debugkeys.MASK, mask)
 
         val,_ = self.__analyse(detected_circles, value)
