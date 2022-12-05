@@ -157,7 +157,8 @@ class PyGOTk:
         self.QUIT = False
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.settings = {'AllowUndo' : tk.BooleanVar(value=False),
-                         'MotionDetectionFactor': tk.DoubleVar(value=0.6),
+                         'MotionDetectionBoard': tk.DoubleVar(value=0.6),
+                         'MotionDetectionBorder': tk.DoubleVar(value=0.2)
         }
 
         self.contextMenu = tk.Menu(self.root, tearoff=False)
@@ -299,6 +300,9 @@ class PyGOTk:
     def game_is_active(self):
         return self.pygo.Game.GS != GameState.NOT_STARTED
 
+    def game_is_video(self):
+        return self.pygo.input_stream.is_video
+
     def GamePause(self) -> None:
         Signals.emit(GamePause)
     
@@ -308,10 +312,14 @@ class PyGOTk:
     def GameTreeBack(self) -> None:
         if self.game_is_active:
             Signals.emit(GameTreeBack)
+        if self.game_is_video:
+            Signals.emit(GamePause)
 
     def GameTreeForward(self) -> None:
         if self.game_is_active:
             Signals.emit(GameTreeForward)
+        if self.game_is_video:
+            Signals.emit(GamePause)
     
     def switchState(self, fn, name, state):
         if state.get():
@@ -346,12 +354,20 @@ class PyGOTk:
             self.video_str = fd.askopenfilename(filetypes=[('mp4', '*.mp4'),
             ])
             if self.video_str:
+                self.time_slider.reset()
                 self.show_video_ui()
                 self.pygo.input_stream.set_input_file_stream(self.video_str)
                 self.time_slider.on_update_time(self.pygo.input_stream.get_length())
                 self.onGameNew()
                 self.go_tree_pause["state"] = "disabled"
 
+    def load_video(self, name):
+        self.video_str = name
+        self.show_video_ui()
+        self.pygo.input_stream.set_input_file_stream(self.video_str)
+        self.time_slider.on_update_time(self.pygo.input_stream.get_length())
+        self.onGameNew()
+        self.go_tree_pause["state"] = "disabled"
 
 
 
@@ -377,19 +393,19 @@ class PyGOTk:
 
         low_button = tk.Radiobutton(switch_frame, 
                                     text="Low", 
-                                    variable=self.settings['MotionDetectionFactor'],
+                                    variable=self.settings['MotionDetectionBoard'],
                                     indicatoron=False, 
                                     value=0.2, 
                                     width=8)
         med_button = tk.Radiobutton(switch_frame, 
                                     text="Medium", 
-                                    variable=self.settings['MotionDetectionFactor'],
+                                    variable=self.settings['MotionDetectionBoard'],
                                     indicatoron=False, 
                                     value=0.4, 
                                     width=8)
         high_button = tk.Radiobutton(switch_frame, 
                                     text="High", 
-                                    variable=self.settings['MotionDetectionFactor'],
+                                    variable=self.settings['MotionDetectionBoard'],
                                     indicatoron=False, 
                                     value=0.6, 
                                     width=8)
@@ -515,7 +531,6 @@ class PyGOTk:
     def update(self) -> None:
         if self.weOwnControllLooop:
             self.pygo.run_once()
-
         if str(self.pygo.msg) != '':
             self.logMove(self.pygo.msg)
 

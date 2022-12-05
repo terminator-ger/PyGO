@@ -500,8 +500,6 @@ class Game(DebugInfoProvider, Timing):
             logging.debug('No Difference found')
             return
 
-        Signals.emit(UpdateHistory, state)
-
         state = self._simple_move_validity_check(state)
         isInTree, notInTree = self.whichMovesAreInTheGameTree(state)
         

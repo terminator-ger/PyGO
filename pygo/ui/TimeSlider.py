@@ -447,13 +447,11 @@ class TimeSlider(tk.Frame):
         self.stones.append((id, time))
 
 
-
-
-
-
-
-
-
+    def reset(self):
+        self.stones = []
+        self._draw()
+        self._update_buttons(0)
+        self.shift_to_time(0)
 
 
 

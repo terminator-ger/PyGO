@@ -9,6 +9,7 @@ from enum import Enum, auto
 from typing import Tuple
 from dataclasses import dataclass
 from scipy.ndimage import label
+from scipy.signal import convolve2d
 
 from skimage.filters import sobel
 from skimage.draw import circle_perimeter
@@ -19,6 +20,7 @@ from pygo.utils.line import point_in_circle
 from pygo.utils.debug import Timing
 from pygo.utils.image import *
 from pygo.utils.debug import DebugInfoProvider
+from pygo.utils.plot import Plot
 from pygo.utils.typing import B1CImage, B3CImage, GoBoardClassification
 from pygo.GoBoard import GoBoard
 
@@ -100,6 +102,10 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         self.ks = 35
         self.c = 1
         self.img_debug = None
+        self.grid = None
+        self.grid_img = None
+        self.factor = None
+        self.grid_plot = Plot()
 
         ver = (cv2.__version__).split('.')
         if int(ver[0]) < 3 :
@@ -113,6 +119,7 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
 
         self.cv_settings =  CV2PlotSettings()
         Signals.subscribe(OnBoardGridSizeKnown, self.update_grid_size)
+
 
 
 
@@ -218,6 +225,10 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         a = ((np.mean([dx,dy])/2)**2)*np.pi
         self.params.minArea = a *0.7
         self.params.maxArea = a *1.3
+        
+        self.grid = grid    # save grid coordinates
+        self.grid_img = None # clear old grid image to force repainting
+        self.factor = None
   
 
     def segment_on_dt(self, a, img):
@@ -355,6 +366,96 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
             if radius >= thresh:
                 circles_clean.append((cx,cy, radius))
         return circles_clean
+    
+    def get_hidden_intersections_fast(self, img:B1CImage, scale: float = 1.0) -> B1CImage:
+        if self.grid_img is None:
+            mask = np.zeros_like(img)
+            grd_img = self.grid_plot.plot_grid(mask, self.grid)
+            grd_img = toGrayImage(grd_img)
+            #grd_img = grd_img[self.border:-self.border, self.border:-self.border].astype(float)
+            _, grd_img = cv2.threshold(grd_img, 127, 255, cv2.THRESH_BINARY)
+            self.grid_img = grd_img
+
+        #img_edge = sobel(img)
+        img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31,2)
+        img = toByteImage(sobel(img))
+        #cv2.imshow('sobel', img)
+        #cv2.waitKey(1)
+        _,img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (3,3)), iterations=2)
+        mask = cv2.bitwise_and(img, self.grid_img)
+        mask = cv2.bitwise_xor(mask, self.grid_img)
+
+        cell_w = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))//2).astype(int)
+        cell_w = (int(cell_w/2))
+        cross = cv2.getStructuringElement(cv2.MORPH_CROSS, (cell_w, cell_w))
+        cv2.imshow("pre_detect", mask)         
+        cv2.waitKey(1)
+
+       #mask = convolve2d(mask, cross)
+
+        mask_center = cv2.morphologyEx(mask.copy(), cv2.MORPH_ERODE, cross)
+        board = self.BOARD.go_board_shifted.reshape(19,19,2)
+        y_bot = int(board[0,18,1])
+        y_top = int(board[0,0,1])
+        x_left = int(board[0,18,0])
+        x_right = int(board[18,18,0])
+
+        edge_mask_bot = np.zeros((cell_w, cell_w), dtype=np.uint8)
+        corner_mask1 = np.zeros((cell_w, cell_w), dtype=np.uint8)
+        corner_mask1[:cell_w//2, cell_w//2] = 1
+        corner_mask1[cell_w//2, :cell_w//2] = 1
+        corner_mask1[cell_w//2, cell_w//2] = 1
+        corner_mask2 = np.rot90(corner_mask1, 1)
+        corner_mask3 = np.rot90(corner_mask1, 2)
+        corner_mask4 = np.rot90(corner_mask1, 3)
+
+        edge_mask_bot[cell_w//2, :] = 1
+        edge_mask_bot[0:cell_w//2, cell_w//2] = 1
+        edge_mask_right = np.rot90(edge_mask_bot, 1)
+        edge_mask_top = np.rot90(edge_mask_bot, 2)
+        edge_mask_left = np.rot90(edge_mask_bot, 3)
+        bottom = mask.copy()
+        top = mask.copy()
+        left = mask.copy()
+        right = mask.copy()
+
+        bottom[:y_bot-cell_w] = 0
+        top[y_top+cell_w:] = 0
+        left[:,x_left+cell_w:] = 0
+        right[:,:x_right-cell_w] = 0
+
+        mask_bot = cv2.morphologyEx(bottom, cv2.MORPH_ERODE, edge_mask_bot)
+        mask_top = cv2.morphologyEx(top, cv2.MORPH_ERODE, edge_mask_top)
+        mask_left = cv2.morphologyEx(left, cv2.MORPH_ERODE, edge_mask_left)
+        mask_right = cv2.morphologyEx(right, cv2.MORPH_ERODE, edge_mask_right)
+        mask_corner_bot1 = cv2.morphologyEx(bottom, cv2.MORPH_ERODE, corner_mask1)
+        mask_corner_bot2 = cv2.morphologyEx(bottom, cv2.MORPH_ERODE, corner_mask4)
+        mask_corner_top1 = cv2.morphologyEx(top, cv2.MORPH_ERODE, corner_mask2) 
+        mask_corner_top2 = cv2.morphologyEx(top, cv2.MORPH_ERODE, corner_mask3) 
+        #cv2.imshow('top', top)
+        #cv2.waitKey(1)
+        #cv2.imshow('top_m', edge_mask_top)
+        #cv2.waitKey(1)
+        #cv2.imshow('left', left)
+        #cv2.waitKey(1)
+        #cv2.imshow('left_m', edge_mask_left)
+        #cv2.waitKey(1)
+
+        out = cv2.bitwise_or(mask_center, mask_left)
+        out = cv2.bitwise_or(out, mask_right)
+        out = cv2.bitwise_or(out, mask_top)
+        out = cv2.bitwise_or(out, mask_bot)
+        out = cv2.bitwise_or(out, mask_corner_bot1)
+        out = cv2.bitwise_or(out, mask_corner_bot2)
+        out = cv2.bitwise_or(out, mask_corner_top1)
+        out = cv2.bitwise_or(out, mask_corner_top2)
+        #import pdb
+        #cv2.imshow("post_detect", out)         
+        #cv2.waitKey(1)
+        #pdb.set_trace()
+        return out
+
 
 
     def get_hidden_intersections(self, img: B1CImage, scale: float = 1.0) -> B1CImage:
@@ -396,6 +497,9 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
                 else:        
                     cv2.circle(factor, crd, radius, 1, -1)
 
+
+        coord = self.BOARD.go_board_shifted.astype(int).reshape(19,19,-1)
+        coord = (coord * scale).astype(int)
         for _ in range(4):    
             flt = cv2.morphologyEx(map, cv2.MORPH_ERODE, corner).astype(float)
             flt = (flt - flt.min()) / (flt.max() - flt.min())
@@ -408,7 +512,8 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
 
         _, grid = cv2.threshold(grid, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
         grid = cv2.dilate(grid, ellipse, iterations=1)
-
+        #cv2.imshow('hidden', grid)
+        #cv2.waitKey(1)
         return grid
 
 
@@ -416,7 +521,7 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         clahe = cv2.createCLAHE(clipLimit=2)
         img = toColorImage(clahe.apply(toGrayImage(img)))
         cmyk = toCMYKImage(img)
-        hidden_corners = self.get_hidden_intersections(cmyk[:,:,3])
+        hidden_corners = self.get_hidden_intersections_fast(cmyk[:,:,3])
         self.showDebug(debugkeys.GRID, hidden_corners)
         detections = []
         #for coord in self.BOARD.go_board_shifted.astype(int):
@@ -424,12 +529,13 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         #        detections.append(coord)
 
         cell_w = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))//2).astype(int)
-        cell_w = (int(cell_w/2))
-        T = cell_w*cell_w*0.6
+        cell_w = (int(cell_w/4))
         grid = self.BOARD.go_board_shifted.astype(int)
         for coord in grid:
+            #if np.sum(hidden_corners[coord[1]-cell_w:coord[1]+cell_w, 
+            #                         coord[0]-cell_w:coord[0]+cell_w]) / 255 < T:
             if np.sum(hidden_corners[coord[1]-cell_w:coord[1]+cell_w, 
-                                     coord[0]-cell_w:coord[0]+cell_w]) / 255 < T:
+                                     coord[0]-cell_w:coord[0]+cell_w]) > 1:
                 detections.append(coord)
 
         detections = np.array(detections)
@@ -443,16 +549,16 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         clahe = cv2.createCLAHE(clipLimit=2)
         img = toColorImage(clahe.apply(toGrayImage(img)))
         cmyk = toCMYKImage(img)
-        hidden_corners = self.get_hidden_intersections(cmyk[:,:,3], scale)
+        hidden_corners = self.get_hidden_intersections_fast(cmyk[:,:,3], scale)
         scaled_grid = (self.BOARD.go_board_shifted * scale).astype(int)
         hidden_intersections = 0
 
         cell_w = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))//2).astype(int)
-        cell_w = (int(cell_w*scale/2))
-        T = cell_w*cell_w*0.6
+        cell_w = (int(cell_w*scale/4))
+
         for coord in scaled_grid:
             if np.sum(hidden_corners[coord[1]-cell_w:coord[1]+cell_w, 
-                                     coord[0]-cell_w:coord[0]+cell_w]) / 255 < T:
+                                     coord[0]-cell_w:coord[0]+cell_w]) > 1:#/ 255 < T:
                 hidden_intersections += 1
 
         return hidden_intersections

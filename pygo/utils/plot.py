@@ -123,7 +123,7 @@ class Plot:
                 img = cv2.circle(img, 
                             (int(c[0]),int(c[1])), 
                             radius=self.radius, 
-                            color=(100,100,100), 
+                            color=(0, 160,0), 
                             thickness=1,
                             lineType=cv2.LINE_AA)
         coords = coords.reshape(19,19,2)

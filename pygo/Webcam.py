@@ -22,6 +22,7 @@ class Webcam:
         self.frames_total = None
         self.frame_n = None
         self.fps = 1
+        self.is_video = False
 
         self.__update_ports()
         self.__auto_calibrate()
@@ -40,6 +41,7 @@ class Webcam:
         self.frame_n = min(next, self.frames_total)
         self._set_pos(self.frame_n)
         Signals.emit(PreviewNextFrame)
+
 
     def _forward10(self, args):
         cur = self.get_pos()  / self.fps
@@ -102,7 +104,7 @@ class Webcam:
     
     def _set_pos(self, time: int) -> None:
         frame = int(time * self.fps)
-        logging.info("Video set to {}".format(frame))
+        logging.info("Video set to {}".format(frame/self.fps))
         max_len = self.get_length()
         if max_len is not None and frame >= 0 and frame < max_len:
             self.cam.set(cv2.CAP_PROP_POS_FRAMES, frame)
@@ -118,6 +120,9 @@ class Webcam:
         if self.frames_total == -1:
             # no video file
             self.frame_n = 0
+            self.is_video = False
+        else:
+            self.is_video = True
 
         width = self.cam.get(cv2.CAP_PROP_FRAME_WIDTH)
         height= self.cam.get(cv2.CAP_PROP_FRAME_HEIGHT)

@@ -37,6 +37,7 @@ class MotionDetectionMOG2(DebugInfoProvider):
         self.hist = 0
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(3,3))
         self.fgbg = cv2.createBackgroundSubtractorMOG2(400, detectShadows=False)
+        self.fgbg_border = cv2.createBackgroundSubtractorMOG2(400, detectShadows=False)
         self.motion_active = False
 
         # reuse the classifiers hidden intersection module
@@ -44,7 +45,8 @@ class MotionDetectionMOG2(DebugInfoProvider):
         self.last_hidden_count = 0
 
         self.settings = {
-            'MotionDetectionFactor' : 0.6,
+            'MotionDetectionBoard' : 0.6,
+            'MotionDetectionBorder' : 0.1,
         }
 
         for key in debugkeys:
@@ -59,7 +61,7 @@ class MotionDetectionMOG2(DebugInfoProvider):
         self.bs = 0
 
     def reset(self, *args):
-        self.last_hidden_count = 0
+        self.last_hidden_count = None
 
     def update_hidden_count_with_handicap(self, args):
         n = args[0]
@@ -80,8 +82,7 @@ class MotionDetectionMOG2(DebugInfoProvider):
         for k in self.settings.keys():
             self.settings[k] = new_settings[k].get()
 
-
-    def hasNoMotion(self, img: B3CImage) -> bool:
+    def getHiddenIntersectionCount(self, img:B3CImage) -> bool:
         if self.resize:
             F = 1.0
             img_count = cv2.resize(img, None, fx=F,fy=F)
@@ -89,12 +90,48 @@ class MotionDetectionMOG2(DebugInfoProvider):
         else:
             F = 1.0
 
-        #if self.hiddenIntersections is not None:
-        #    hidden_count = self.hiddenIntersections.get_hidden_intersection_count(img_count, scale=F)
+        if self.hiddenIntersections is not None:
+            hidden_count = self.hiddenIntersections.get_hidden_intersection_count(img_count, scale=F)
+            return hidden_count
+        else:
+            raise RuntimeError('Missing ref to alg make sure to pass \
+                                a circle classifier instance to the motiondetection')
 
-        fgmask = self.fgbg.apply(img, self.settings['MotionDetectionFactor'])
+    def hasNoMotion(self, img: B3CImage) -> bool:
+        return self._hasNoMotion(img)
+    
+    def _hasNoMotionSimple(self, img: B3CImage) -> bool:
+        if self.last_hidden_count is None:
+            self.last_hidden_count = self.getHiddenIntersectionCount(img)
+        hidden_count = self.getHiddenIntersectionCount(img)
+        if (hidden_count - self.last_hidden_count > 2):
+            self.motion_active = True
+            return False
+
+        if (self.motion_active and \
+            (hidden_count - self.last_hidden_count <= 2)):
+            self.last_hidden_count = hidden_count
+            self.motion_active = False
+            logging.debug('No Motion')
+            return True
+
+        return False
+
+
+    def _hasNoMotion(self, img: B3CImage) -> bool:
+        if self.resize:
+            F = 1.0
+            img_count = cv2.resize(img, None, fx=F,fy=F)
+            img = cv2.resize(img, None, fx=self.f,fy=self.f)
+        else:
+            F = 1.0
+
+        bmask = self.fgbg_border.apply(img, self.settings['MotionDetectionBorder'])
+        fgmask = self.fgbg.apply(img, self.settings['MotionDetectionBoard'])
+
         fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel, iterations=1)
-        bmask = fgmask.copy()
+
+        #bmask = fgmask.copy()
         bmask = cv2.morphologyEx(bmask, cv2.MORPH_OPEN, self.kernel, iterations=1)
         bmask[self.bs:-self.bs, self.bs:-self.bs] = 0
         fgmask[:self.bs] = 0
