@@ -160,9 +160,8 @@ class PyGO(Timing):
                         if self.input_stream.is_video:
                             last_t, kf_count = self.History.how_many_kf_since_last_update()
                             logging.warning("{} Keyframes added without an update to the game state".format(kf_count))
-                            if kf_count > 0:
-                                pass
-                                #self.backtrack(from_=last_t)
+                            if kf_count > 1:
+                                self.backtrack(from_=last_t)
 
                         #if self.Katrain is not None:
                         #    self.Katrain.send(self.msg)
@@ -185,7 +184,7 @@ class PyGO(Timing):
                 img = self.Board.get_corners_overlay(self.img_cam)
                 self.img_overlay = img
                 self.img_virtual = img
-                self.img_cropped = img
+                self.img_cropped = self.img_cam
             
 
     def backtrack(self, from_=None) -> None:

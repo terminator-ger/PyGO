@@ -196,7 +196,7 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
 
             p_stone = isin_circle * 0.25 + isin_hidden * 0.5 + isin_blobb * 0.25
 
-            if p_stone >= 0.5:
+            if p_stone > 0.5:
                 cv2.circle(markers, coord, cell_w+3, 0, -1)
                 cv2.circle(markers, coord, 2, id, 2)
 
@@ -389,8 +389,6 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         cell_w = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))//2).astype(int)
         cell_w = (int(cell_w/2))
         cross = cv2.getStructuringElement(cv2.MORPH_CROSS, (cell_w, cell_w))
-        cv2.imshow("pre_detect", mask)         
-        cv2.waitKey(1)
 
        #mask = convolve2d(mask, cross)
 

@@ -1,4 +1,6 @@
+from argparse import ArgumentError
 import cv2
+import lsd
 import logging
 import numpy as np
 
@@ -7,6 +9,7 @@ from enum import Enum, auto
 from thirdparty.XiaohuLuVPDetection.lu_vp_detect import VPDetection, LS_ALG
 from skimage import transform
 
+from scipy.spatial.distance import cdist
 from nptyping import NDArray
 from typing import Optional, Tuple, List
 
@@ -18,6 +21,7 @@ from pygo.Signals import *
 from pygo.CameraCalib import CameraCalib
 from pygo.utils.typing import B1CImage, B3CImage, Point2D, Point3D, Image, Mask, B1CImage, Corners
 from pygo.utils.image import toColorImage
+
 
 
 
@@ -51,6 +55,7 @@ class GoBoard(DebugInfoProvider, Timing):
         self.grid_lines = None
         self.cell_w = None
         self.cell_h = None
+        self.img_limits = None
 
         # Images
         self.current_unwarped = None
@@ -151,6 +156,8 @@ class GoBoard(DebugInfoProvider, Timing):
         vp2: 2d vanishing point
         img: thresholded image of the board
         vp1 and vp2 can be omitted for speadup
+        pro: super fast
+        con: fails when we have stones in the corner
         '''
         contours, _ = cv2.findContours(img, 
                                         cv2.RETR_EXTERNAL, 
@@ -253,9 +260,13 @@ class GoBoard(DebugInfoProvider, Timing):
         return corners_mat
 
 
-    def detect_board_corners_fast(self, vp1: Point2D, vp2: Point2D, img: B3CImage) -> NDArray:
+    def detect_board_corners_fast(self, img: B3CImage, vp1: Point2D=None, vp2: Point2D=None) -> NDArray:
+        if vp1 is None:
+            logging.debug('Running corner detection WITHOUT vanishing point module')
+
         img_bw = self.binarizeImage(img, C=10)
         corners = self.get_corners(vp1, vp2, img_bw)
+        corners = self.refine_corners(corners, img)
         logging.debug('Corners {}'.format(corners))
  
         return corners
@@ -296,11 +307,13 @@ class GoBoard(DebugInfoProvider, Timing):
             # different settings
             img_bw = self.binarizeImage(img, C)
             corners = self.get_corners(vp1, vp2, img_bw)
+            corners = self.refine_corners(corners, img)
 
             if corners is not None:
                 self.update_grid(img_bw, corners)
                 if self.check_board_alignment(img_bw):
                     # stop search when the have found a good solution
+                    logging.info("Board position found")
                     self.hasEstimate=True
                     break
 
@@ -368,7 +381,7 @@ class GoBoard(DebugInfoProvider, Timing):
     def track_corners(self, img: B3CImage) -> NDArray:
         # for fast binarization we use a preset threshold, this can fail on extreme 
         # illuminations
-        corners = self.detect_board_corners_fast(None, None, img)
+        corners = self.detect_board_corners_fast(img=img)
         return corners
 
 
@@ -478,15 +491,152 @@ class GoBoard(DebugInfoProvider, Timing):
 
         return img_c_trim
 
+    def refine_corners(self, corners: NDArray, img : B3CImage) -> NDArray:
+        '''
+            Given a rough corner mask from the extraction of the largest shape on the camera 
+            we can refine this mask further by matching the intersections to the refrence grid
+            The previous step is neccessary as we can now extract the intersections quickly using 
+            the fast Shi-Tomasi corner detector
+        '''
+
+        #c = np.squeeze(corners)
+        if corners is None:
+            return None
+        cH = cv2.convertPointsToHomogeneous(corners)
+
+        # check weather we have a homography estimation
+        grid = get_ref_coords(img.shape, self.border_size)
+
+        target_corners = np.vstack((grid[342],
+                                    grid[360],
+                                    grid[18],
+                                    grid[0]))
+
+        H_board, _ = cv2.findHomography(target_corners, corners)
+        _, (x,y) = mask_board(img, grid, self.border_size)
+        go_board_shifted = grid - np.array([x,y])
 
 
 
+        #convert corners into rectified version
+        cHw = []
+        for crn in cH:
+            pt = np.linalg.inv(H_board) @ crn.T
+            cHw.append(cv2.convertPointsFromHomogeneous(pt.T))
+        cHw = np.squeeze(np.array(cHw),1).astype(int)
+
+        limits = self.img_limits if self.img_limits is not None else (img.shape[1],img.shape[0])
+
+        # mask everything outside the roughly found board
+        H,W = limits
+        mask = np.zeros((W,H), dtype=np.uint8)
+        mask = cv2.fillConvexPoly(mask, cHw, 255)
+        mask = cv2.bitwise_not(mask)
+
+        # warp image and mask
+        if corners is not None:
+            corners = np.int32([corners])
+            #cv2.polylines(img_, corners, color=(0,255,0), isClosed=True, thickness=3)
+
+        img_ = cv2.warpPerspective(img, np.linalg.inv(H_board), limits)
+        img_[mask==255] = 0
 
 
+        paired_corners = self.extract_intersections(corners, img_, go_board_shifted)
+
+        H = cv2.findHomography(go_board_shifted, paired_corners, cv2.LMEDS)[0]
+        refined_H = np.linalg.inv(H) @ np.linalg.inv(H_board)
+        img_warped_refined = cv2.warpPerspective(img, refined_H, limits)
+
+        c = []
+        corners__ = []
+        corners__.append(go_board_shifted.reshape(19,19,2)[0,0])
+        corners__.append(go_board_shifted.reshape(19,19,2)[0,18])
+        corners__.append(go_board_shifted.reshape(19,19,2)[18,18])
+        corners__.append(go_board_shifted.reshape(19,19,2)[18,0])
 
 
+        for crn in corners__:
+            crn = np.array([[crn[0], crn[1], 1]])
+            pt = np.linalg.inv(refined_H) @ crn.T
+            c.append(cv2.convertPointsFromHomogeneous(pt.T))
+            cv2.circle(img, np.squeeze(c[-1]).astype(int), 1, (255,0,0), -1)
+        c = np.squeeze(np.array(c),1).astype(int)
+
+        #cv2.imshow('updated corners', img)
+        #cv2.waitKey(1)
+
+        # detect lines -> when the corners are correct the lines should be almost perfectly
+        # vertical and horizontal
+        #lines = lsd.lsd_with_line_merge(img_)
+        return np.array(c)
 
 
+    def mask_outside_board(self, corners: NDArray, img: B1CImage) -> B1CImage:
+
+        mask = np.zeros_like(img, dtype=np.uint8)
+        cv2.fillPoly(mask, corners, 255)
+        mask = cv2.bitwise_not(mask)
+        img[mask==255] = 0
+        return img
+
+    # detect round objects
+    def _mask_stones(self, corners_warped: NDArray, img: B1CImage) -> B1CImage:
+        if len(img.shape) == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        blur = cv2.medianBlur(img, 11)
+        thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        thresh = cv2.bitwise_not(thresh)
+        thresh = self.mask_outside_board(corners_warped, thresh)
+
+        # Morph open 
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7,7))
+        opening = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
+        opening = cv2.dilate(opening, kernel)
+
+        return opening
+
+    def get_mask_around_stones(self, corners: NDArray, img: B3CImage) -> B1CImage:
+        if len(img.shape) == 3:
+            img_gray = toGrayImage(img)
+            img_cmyk = toCMYKImage(img)[:,:,2]
+        else:
+            raise ArgumentError("Image has wrong number of channels -> we need color[rgb]")
+        
+        img_gray = self.mask_outside_board(corners, img_gray)
+        mask_black = self._mask_stones(corners, img_gray)
+
+        img_cmyk = self.mask_outside_board(corners, img_cmyk)
+        mask_white = self._mask_stones(corners, img_cmyk)
+
+        mask = cv2.bitwise_or(mask_black, mask_white)
+        return mask
+
+    def extract_intersections(self, corners: NDArray, img: B3CImage, go_board_shifted) -> NDArray:
+        if len(img.shape) == 3:
+            img__ = toGrayImage(img)
+        else:
+            raise ArgumentError("Image has wrong number of channels -> we need color[rgb]")
+        
+        stone_mask = self.get_mask_around_stones(corners, img)
+
+        ft = cv2.goodFeaturesToTrack(img__, 19*19, 0.01, 10)
+        #clean ft with mask
+        idx = np.argwhere(stone_mask[ft[:,0,0].astype(int), ft[:,0,1].astype(int)] == 0)
+        ft = ft[idx]
+
+        #for c in go_board_shifted:
+        #    cv2.circle(img, c.astype(int), 1, (0,0,255), 1)
+        ft = np.squeeze(ft)
+        dists = cdist(go_board_shifted, ft)
+        paired = []
+        for i, c in enumerate(go_board_shifted):
+            paired.append(ft[np.argmin(dists[i])])
+            #cv2.circle(img, paired[-1].astype(int), 2, (255,0,0), -1)
+        #cv2.imshow('shifted', img)
+        #cv2.waitKey(1)
+        paired = np.array(paired)
+        return paired
 
 
 
