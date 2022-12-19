@@ -149,23 +149,9 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         color_detect = (0, 255, 0)
         thickness = 2
         for coord in self.BOARD.go_board_shifted.astype(int):
-            isin_circle = np.all(np.equal(coord, detections_circle),axis=1).any() if len(detections_circle) > 0 else np.array([False])
-            isin_hidden = np.all(np.equal(coord, detections_hidden),axis=1).any() if len(detections_hidden) > 0 else np.array([False])
-            isin_blobb  = np.all(np.equal(coord, detections_blobb),axis=1).any() if len(detections_blobb)   > 0 else np.array([False])
-
-            isin_circle = isin_circle.astype(int)
-            isin_hidden = isin_hidden.astype(int)
-            isin_blobb = isin_blobb.astype(int)
-            #detect_count = np.sum([isin_circle, isin_hidden, isin_blobb])
-  
-            #cv2.putText(img=img_detect, 
-            #            text=str(detect_count), 
-            #            org=coord+np.array([-5,5]), 
-            #            fontFace=font,
-            #            fontScale=fontScale, 
-            #            color=color if detect_count <2 else color_detect, 
-            #            thickness=thickness, 
-            #            lineType=cv2.LINE_AA)
+            isin_circle = np.all(np.equal(coord, detections_circle),axis=1).any().astype(int) if len(detections_circle) > 0 else 0
+            isin_hidden = np.all(np.equal(coord, detections_hidden),axis=1).any().astype(int) if len(detections_hidden) > 0 else 0
+            isin_blobb  = np.all(np.equal(coord, detections_blobb),axis=1).any().astype(int) if len(detections_blobb)   > 0 else 0
 
             cv2.putText(img=img_detect0, 
                         text=str(isin_circle), 

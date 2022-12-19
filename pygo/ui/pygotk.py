@@ -156,9 +156,10 @@ class PyGOTk:
         self._next_job = None
         self.QUIT = False
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
         self.settings = {'AllowUndo' : tk.BooleanVar(value=False),
-                         'MotionDetectionBoard': tk.DoubleVar(value=0.6),
-                         'MotionDetectionBorder': tk.DoubleVar(value=0.2)
+                         'MotionDetectionBoard': tk.DoubleVar(value=0.02),
+                         'MotionDetectionBorder': tk.DoubleVar(value=0.001)
         }
 
         self.contextMenu = tk.Menu(self.root, tearoff=False)
@@ -395,19 +396,19 @@ class PyGOTk:
                                     text="Low", 
                                     variable=self.settings['MotionDetectionBoard'],
                                     indicatoron=False, 
-                                    value=0.2, 
+                                    value=0.02, 
                                     width=8)
         med_button = tk.Radiobutton(switch_frame, 
                                     text="Medium", 
                                     variable=self.settings['MotionDetectionBoard'],
                                     indicatoron=False, 
-                                    value=0.4, 
+                                    value=0.04, 
                                     width=8)
         high_button = tk.Radiobutton(switch_frame, 
                                     text="High", 
                                     variable=self.settings['MotionDetectionBoard'],
                                     indicatoron=False, 
-                                    value=0.6, 
+                                    value=0.06, 
                                     width=8)
         low_button.pack(side="left")
         med_button.pack(side="left")

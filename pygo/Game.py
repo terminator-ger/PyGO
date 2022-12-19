@@ -567,14 +567,14 @@ class Game(DebugInfoProvider, Timing):
 
 
     def nextMove(self) -> Optional[int]:
-        if self.last_color == 0:
-            return 1
-        elif self.last_color == 1:
-            return 0
+        if self.last_color == C2N("B"):
+            return C2N("W")
+        elif self.last_color == C2N("W"):
+            return C2N("B")
         else:
             #upon init black starts
             # TODO: unless we have handicap
-            return 0
+            return C2N("B")
 
 
     def _unravel(self, x):

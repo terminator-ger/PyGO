@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 
+from pygo.Settings import PyGOSettings
 from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
 from pygo.utils.image import toByteImage, toColorImage, toGrayImage
 from pygo.utils.typing import Image, B3CImage, Mask
@@ -44,14 +45,12 @@ class MotionDetectionMOG2(DebugInfoProvider):
         self.hiddenIntersections = classifier
         self.last_hidden_count = 0
 
-        self.settings = {
-            'MotionDetectionBoard' : 0.6,
-            'MotionDetectionBorder' : 0.1,
-        }
+        self.fgbg_border.apply(img, None, 1)
+        self.fgbg.apply(img, None, 1)
+
 
         for key in debugkeys:
             self.available_debug_info[key.name] = False
-        Signals.subscribe(OnSettingsChanged, self.settings_updated)
         Signals.subscribe(OnGridSizeUpdated, self.grid_size_updated)
         Signals.subscribe(GameNew, self.reset)
         Signals.subscribe(GameHandicapMove, self.update_hidden_count_with_handicap)
@@ -76,11 +75,6 @@ class MotionDetectionMOG2(DebugInfoProvider):
         self.stone_area = area
         self.tresh = area
         self.bs = int(min(width, height) * self.f)
-
-    def settings_updated(self, args):
-        new_settings = args[0]
-        for k in self.settings.keys():
-            self.settings[k] = new_settings[k].get()
 
     def getHiddenIntersectionCount(self, img:B3CImage) -> bool:
         if self.resize:
@@ -126,8 +120,8 @@ class MotionDetectionMOG2(DebugInfoProvider):
         else:
             F = 1.0
 
-        bmask = self.fgbg_border.apply(img, self.settings['MotionDetectionBorder'])
-        fgmask = self.fgbg.apply(img, self.settings['MotionDetectionBoard'])
+        bmask = self.fgbg_border.apply(img, None, PyGOSettings['MotionDetectionBorder'])
+        fgmask = self.fgbg.apply(img, None, PyGOSettings['MotionDetectionBoard'])
 
         fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel, iterations=1)
 
@@ -138,6 +132,14 @@ class MotionDetectionMOG2(DebugInfoProvider):
         fgmask[:,:self.bs] = 0
         fgmask[-self.bs:] = 0
         fgmask[:,-self.bs:] = 0
+        #print('BORDER {}'.format(PyGOSettings['MotionDetectionBorder']))
+        #print('board {}'.format(PyGOSettings['MotionDetectionBoard']))
+
+        cv2.imshow('border', bmask)
+        cv2.waitKey(1)
+        cv2.imshow('center', fgmask)
+        cv2.waitKey(1)
+
 
         idx = np.argwhere(fgmask > 0)
         if len(idx) > 0:
