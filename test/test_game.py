@@ -9,23 +9,6 @@ from pudb import set_trace
 
 
 class GameTests(unittest.TestCase):
-    def testMultiCaptureWithoutDetection(self):
-        self.game = Game()
-        self.game.startNewGame()
-        self.game._test_set('B',(0,1))
-        self.game._test_set('W',(0,0))
-        self.game._test_set('B',(1,1))
-        self.game._test_set('W',(1,0))
-        nextState = self.game.state.copy()
-        nextState[2,0] = C2N('B')
-        nextState[0,0] = C2N('E')
-        updatedState = self.game._simple_move_validity_check(nextState)
-
-        self.assertEqual(updatedState[0,0], COLOR.NONE.value)
-        self.assertEqual(updatedState[1,0], COLOR.NONE.value)
-
-
-
     def testUndoRedo(self):
         self.game = Game()
         self.game.startNewGame()
@@ -58,6 +41,71 @@ class GameTests(unittest.TestCase):
         self.assertEqual(self.game.last_color, COLOR.BLACK.value)
         self.assertEqual(self.game.last_x, 3)
         self.assertEqual(self.game.last_y, 3)
+
+
+
+
+    def testMultiCaptureWithoutDetection(self):
+        self.game = Game()
+        self.game.startNewGame()
+        self.game._test_set('B',(0,1))
+        self.game._test_set('W',(0,0))
+        self.game._test_set('B',(1,1))
+        self.game._test_set('W',(1,0))
+        nextState = self.game.state.copy()
+        nextState[2,0] = C2N('B')
+        nextState[0,0] = C2N('E')
+        updatedState = self.game._simple_move_validity_check(nextState)
+
+        self.assertEqual(updatedState[0,0], COLOR.NONE.value)
+        self.assertEqual(updatedState[1,0], COLOR.NONE.value)
+
+
+
+    def testScenario0(self):
+        self.game = Game()
+        self.game.startNewGame()
+        self.game._test_set('B',(3,3))
+        self.game._test_set('B',(15,15))
+        nextState = self.game.state.copy()
+        nextState[15,3] = C2N('W')
+
+        self.game.updateStateWithChecks(nextState)
+        nextState = self.game.state.copy()
+        nextState[13,2] = C2N('B')
+
+        self.game.updateStateWithChecks(nextState)
+        nextState = self.game.state.copy()
+        nextState[15,5] = C2N('w')
+
+        self.game.updateStateWithChecks(nextState)
+        nextState = self.game.state.copy()
+        nextState[15,2] = C2N('B')
+
+        self.game.updateStateWithChecks(nextState)
+        nextState = self.game.state.copy()
+        nextState[16,2] = C2N('w')
+
+        self.game.updateStateWithChecks(nextState)
+        nextState = self.game.state.copy()
+        nextState[16,1] = C2N('B')
+
+        self.game.updateStateWithChecks(nextState)
+        nextState = self.game.state.copy()
+        nextState[2,4] = C2N('W')
+
+        self.game.updateStateWithChecks(nextState)
+        state = self.game.state.copy()
+
+        self.assertEqual(state[15,3], COLOR.WHITE.value)
+        self.assertEqual(state[13,2], COLOR.BLACK.value)
+        self.assertEqual(state[15,5], COLOR.WHITE.value)
+        self.assertEqual(state[15,2], COLOR.BLACK.value)
+        self.assertEqual(state[16,2], COLOR.WHITE.value)
+        self.assertEqual(state[16,1], COLOR.BLACK.value)
+        self.assertEqual(state[ 2,4], COLOR.WHITE.value)
+
+
 
 
 
