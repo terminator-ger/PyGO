@@ -44,13 +44,31 @@ class PyGO(Timing):
         self.msg = ''
         self.Katrain = None
         self.input_is_frozen = False
-    
-        Signals.subscribe(GameRun, self.unfreeze)
-        Signals.subscribe(GamePause, self.freeze)
-        Signals.subscribe(GameNew, self.startNewGame)
-        Signals.subscribe(GameNewMove, self._notify_ui_new_move)
-        Signals.subscribe(DetectHandicap, self.__analyzeHandicap)
-        Signals.subscribe(PreviewNextFrame, self.__force_image_load)
+
+        self.quit = False
+
+        CoreSignals.subscribe(Exit, self._exit) 
+        CoreSignals.subscribe(GameRun, self.unfreeze)
+        CoreSignals.subscribe(GamePause, self.freeze)
+        CoreSignals.subscribe(GameNew, self.startNewGame)
+        CoreSignals.subscribe(GameNewMove, self._notify_ui_new_move)
+        CoreSignals.subscribe(DetectHandicap, self.__analyzeHandicap)
+        CoreSignals.subscribe(PreviewNextFrame, self.__force_image_load)
+        CoreSignals.subscribe(OnSettingsChanged, self.__settings_updated)
+
+    def __settings_updated(self, args):
+        new_settings = args[0]
+        logging.info("Settings updated:")
+        for k in PyGOSettings.keys():
+            if k in new_settings.keys():
+                PyGOSettings[k] = new_settings[k].get()
+            logging.info("{} : {}".format(k, PyGOSettings[k]))
+
+
+
+    def _exit(self, *args) -> None:
+        logging.info("Exit")
+        self.quit = True
 
     def freeze(self, *args) -> None:
         self.input_is_frozen = True 
@@ -86,7 +104,7 @@ class PyGO(Timing):
             self.img_cropped = self.Board.extract(self.img_cam)
 
         # pause the game 
-        Signals.emit(GamePause)
+        CoreSignals.emit(GamePause)
 
 
     def loop10x(self) -> None:
@@ -105,8 +123,10 @@ class PyGO(Timing):
 
 
     def loop(self) -> None:
-        while (True):
+        while not self.quit:
             self.run_once()
+
+        self.input_stream.release()
 
 
     def update_history(self, prediction: GoBoardClassification) -> None:
@@ -118,10 +138,11 @@ class PyGO(Timing):
     def _notify_ui_new_move(self, args):
         colour = args[0]
         t = self.input_stream.get_time()
-        Signals.emit(UIDrawStoneOnTimeline, colour, t)
+        UISignals.emit(UIDrawStoneOnTimeline, colour, t)
 
     
     def run_once(self) -> None:
+            CoreSignals.process_signals()
             if not self.input_is_frozen:
                 self.img_cam = self.input_stream.read()
 
@@ -189,7 +210,7 @@ class PyGO(Timing):
 
     def backtrack(self, from_=None) -> None:
         # halt the stream
-        Signals.emit(GamePause)
+        CoreSignals.emit(GamePause)
         to_ = self.input_stream.get_time()
 
         self.input_stream.set_pos((from_,))
@@ -242,7 +263,7 @@ class PyGO(Timing):
 
         # restore state and resume
         self.input_stream.set_pos((to_,))
-        Signals.emit(GameRun)
+        CoreSignals.emit(GameRun)
 
 
     def _get_hidden_cnt(self, t):

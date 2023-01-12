@@ -1,13 +1,13 @@
 import cv2
 import numpy as np
 
-from pygo.Signals import OnBoardGridSizeKnown, Signals
+from pygo.Signals import OnBoardGridSizeKnown, CoreSignals
 from pygo.utils.color import CNOT
 
 class Plot:
     def __init__(self):
         self.radius = 8
-        Signals.subscribe(OnBoardGridSizeKnown, self.update_radius)
+        CoreSignals.subscribe(OnBoardGridSizeKnown, self.update_radius)
 
     def update_radius(self, args):
         grid = args[0].reshape(19,19,2)

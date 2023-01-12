@@ -1,25 +1,72 @@
 from abc import ABC, abstractmethod
+from queue import Queue
 from typing import Callable
 import logging
-from unittest import signals
 
 class Signals(ABC):
+    pass
+
+class UISignals(Signals):
     subs = {}
+    emittedQ = Queue()
 
     @staticmethod
     def subscribe(sig, fun : Callable):
         logging.debug("Function {} was registered for {}".format(fun , sig))
         sig = sig.__name__
-        if sig not in Signals.subs.keys():
-            Signals.subs[sig] = []
-        Signals.subs[sig].append(fun)
+        if sig not in UISignals.subs.keys():
+            UISignals.subs[sig] = []
+        UISignals.subs[sig].append(fun)
 
     @staticmethod
     def emit(sig, *args):
         sig = sig.__name__
-        if sig in Signals.subs.keys():
-            for sub in Signals.subs[sig]:
+        if len(args) == 0:
+            args = None
+        logging.debug("UISignals emit: {}".format(sig))
+        if sig in UISignals.subs.keys():
+            UISignals.emittedQ.put((sig, args))
+
+    @staticmethod
+    def process_signals():
+        while not UISignals.emittedQ.empty():
+            sig_emitted = UISignals.emittedQ.get()
+            sig = sig_emitted[0]
+            args = sig_emitted[1]
+
+            for sub in UISignals.subs[sig]:
                 sub(args)
+
+class CoreSignals(Signals):
+    subs = {}
+    emittedQ = Queue()
+    @staticmethod
+    def subscribe(sig, fun : Callable):
+        logging.debug("Function {} was registered for {}".format(fun , sig))
+        sig = sig.__name__
+        if sig not in CoreSignals.subs.keys():
+            CoreSignals.subs[sig] = []
+        CoreSignals.subs[sig].append(fun)
+
+    @staticmethod
+    def emit(sig, *args):
+        sig = sig.__name__
+        if len(args) == 0:
+            args = None
+        logging.debug("CoreSignals emit: {}".format(sig))
+        if sig in CoreSignals.subs.keys():
+            CoreSignals.emittedQ.put((sig, args))
+
+    @staticmethod
+    def process_signals():
+        while not CoreSignals.emittedQ.empty():
+            sig_emitted = CoreSignals.emittedQ.get()
+            sig = sig_emitted[0]
+            args = sig_emitted[1]
+
+            for sub in CoreSignals.subs[sig]:
+                sub(args)
+
 
 
 # Commands to different submodules/ Detected Events
@@ -109,5 +156,25 @@ class GameHandicapMove(Signals):
 class GameReset(Signals):
     pass
 
+class Exit(Signals):
+    pass
+
+
+
 class UIDrawStoneOnTimeline(Signals):
+    pass
+
+class UIUpdateLog(Signals):
+    pass
+
+class UIOnBoardDetected(Signals):
+    pass
+
+class UIOnBoardReset(Signals):
+    pass
+
+class UIGameReset(Signals):
+    pass
+
+class UIVideoFrameCounterUpdated(Signals):
     pass

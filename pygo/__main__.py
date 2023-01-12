@@ -11,10 +11,13 @@ def run_app_threaded():
     ui = PyGOTk(pygo=core)
     ui.run()
 
+    core_thread.join()
+
 def run_app_singlecore():
     ui = PyGOTk()
     ui.run()
 
 
 if __name__ == '__main__':
-    run_app_singlecore()
+    #run_app_singlecore()
+    run_app_threaded()

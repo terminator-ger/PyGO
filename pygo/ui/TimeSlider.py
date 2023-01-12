@@ -125,22 +125,22 @@ class TimeSlider(tk.Frame):
 
 
     def seek_back(self):
-        Signals.emit(InputBackward)
+        CoreSignals.emit(InputBackward)
         val = self.pygo.input_stream.get_time()
         self.shift_to_time(val, cursor_only=True)
  
     def seek_back10(self):
-        Signals.emit(InputBackward10)
+        CoreSignals.emit(InputBackward10)
         val = self.pygo.input_stream.get_time()
         self.shift_to_time(val, cursor_only=True)
  
     def seek_forward(self):
-        Signals.emit(InputForward)
+        CoreSignals.emit(InputForward)
         val = self.pygo.input_stream.get_time()
         self.shift_to_time(val, cursor_only=True)
     
     def seek_forward10(self):
-        Signals.emit(InputForward10)
+        CoreSignals.emit(InputForward10)
         val = self.pygo.input_stream.get_time()
         self.shift_to_time(val, cursor_only=True)
  
@@ -161,15 +161,15 @@ class TimeSlider(tk.Frame):
             if self.pygo.Game.GS == GameState.RUNNING:
                 self.nav_btn_play_red["state"] = "normal" 
                 self.nav_btn_play_black.configure(image=self.img_btn_p)
-                Signals.emit(GamePause)
+                CoreSignals.emit(GamePause)
 
             elif self.pygo.Game.GS == GameState.PAUSED:
                 self.nav_btn_play_red["state"] = "disabled" 
                 self.nav_btn_play_black.configure(image=self.img_btn_pause)
                 if val is not None:
-                    Signals.emit(InputStreamSeek, val)
-                    Signals.emit(PreviewNextFrame)
-                Signals.emit(GameRun)
+                    CoreSignals.emit(InputStreamSeek, val)
+                    CoreSignals.emit(PreviewNextFrame)
+                CoreSignals.emit(GameRun)
 
             elif self.pygo.Game.GS == GameState.NOT_STARTED:
                 self.nav_btn_play_red["state"] = "disabled"
@@ -180,16 +180,16 @@ class TimeSlider(tk.Frame):
             # the frame under the cursor in paused state
             self.nav_btn_play_red["state"] = "normal" 
             self.nav_btn_play_black.configure(image=self.img_btn_p)
-            Signals.emit(GamePause)
+            CoreSignals.emit(GamePause)
             if val is not None:
-                Signals.emit(InputStreamSeek, val)
-                Signals.emit(PreviewNextFrame)
+                CoreSignals.emit(InputStreamSeek, val)
+                CoreSignals.emit(PreviewNextFrame)
 
 
 
     def _set_frame_pos(self) -> None:
         val = self.t_cursor
-        Signals.emit(InputStreamSeek, val)
+        CoreSignals.emit(InputStreamSeek, val)
 
 
     def on_update_time(self, total_seconds: float) -> None:

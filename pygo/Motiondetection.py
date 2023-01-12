@@ -51,9 +51,9 @@ class MotionDetectionMOG2(DebugInfoProvider):
 
         for key in debugkeys:
             self.available_debug_info[key.name] = False
-        Signals.subscribe(OnGridSizeUpdated, self.grid_size_updated)
-        Signals.subscribe(GameNew, self.reset)
-        Signals.subscribe(GameHandicapMove, self.update_hidden_count_with_handicap)
+        CoreSignals.subscribe(OnGridSizeUpdated, self.grid_size_updated)
+        CoreSignals.subscribe(GameNew, self.reset)
+        CoreSignals.subscribe(GameHandicapMove, self.update_hidden_count_with_handicap)
 
         self.stone_area = None
         self.tresh = self.stone_area if self.stone_area is not None else 1
@@ -135,10 +135,10 @@ class MotionDetectionMOG2(DebugInfoProvider):
         #print('BORDER {}'.format(PyGOSettings['MotionDetectionBorder']))
         #print('board {}'.format(PyGOSettings['MotionDetectionBoard']))
 
-        cv2.imshow('border', bmask)
-        cv2.waitKey(1)
-        cv2.imshow('center', fgmask)
-        cv2.waitKey(1)
+        #cv2.imshow('border', bmask)
+        #cv2.waitKey(1)
+        #cv2.imshow('center', fgmask)
+        #cv2.waitKey(1)
 
 
         idx = np.argwhere(fgmask > 0)

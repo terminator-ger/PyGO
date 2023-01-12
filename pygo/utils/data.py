@@ -2,7 +2,10 @@ import os
 import cv2
 import numpy as np
 import pdb
-from pygo.utils.image import toCMYKImage, toColorImage
+from pygo.utils.image import toCMYKImage, toColorImage, toDoubleImage
+import imgaug.augmenters as iaa
+from tqdm import tqdm
+
 
 def load_training_data_old(classes):
     x = []
@@ -63,6 +66,8 @@ def load_and_augment_training_data(feat_fn):
     seq = iaa.Sequential([
         iaa.Fliplr(0.5), # horizontally flip 50% of all images
         iaa.Flipud(0.5), # vertically flip 20% of all images
+        iaa.Resize((35,35)),
+        iaa.CropToFixedSize(width=32, height=32),
         #iaa.color.MultiplyAndAddToBrightness(),
         #iaa.color.MultiplyBrightness(mul=(0.8,1.2))
         iaa.Multiply((0.8, 1.2), per_channel=0.2)
@@ -105,10 +110,19 @@ def load_and_augment_training_data(feat_fn):
     def replace(vec, what, wth):
         vec[vec==what] = wth
         return vec
-    #y_train = replace(y_train, 3, 2)
-    #y_train = replace(y_train, 4, 2)
-    #y_test = replace(y_test, 3, 2)
-    #y_test = replace(y_test, 4, 2)
+
+    y_train = replace(y_train, 0, 1)
+    y_train = replace(y_train, 1, 1)
+    y_train = replace(y_train, 2, 0)
+    y_train = replace(y_train, 3, 0)
+    y_train = replace(y_train, 4, 0)
+
+    y_test = replace(y_test, 0, 1)
+    y_test = replace(y_test, 1, 1)
+    y_test = replace(y_test, 2, 0)
+    y_test = replace(y_test, 3, 0)
+    y_test = replace(y_test, 4, 0)
+
 
     print('No Train Samples: {}'.format(len(X_train)))
     print('No Test Samples: {}'.format(len(X_test)))

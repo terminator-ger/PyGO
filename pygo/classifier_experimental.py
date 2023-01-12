@@ -1,6 +1,4 @@
 import numpy as np
-from pygo.classifier import Classifier
-from __future__ import division
 from distutils.log import debug
 from re import I
 from turtle import back
@@ -58,6 +56,82 @@ from pygo.utils.debug import DebugInfo, DebugInfoProvider
 from pygo.utils.typing import B1CImage, B3CImage, GoBoardClassification
 from pygo.GoBoard import GoBoard
 
+class Classifier:
+    def predict(self, patches):
+        raise NotImplementedError()
+
+    def train(self, patches):
+        raise NotImplementedError()
+
+    def load(self):
+        raise NotImplementedError()
+
+    def store(self):
+        raise NotImplementedError()
+
+def sliding_window(image, stepSize, windowSize):
+    #trim img
+    dx = image.shape[0] // windowSize[0]
+    dy = image.shape[1] // windowSize[1]
+    image = image[:dx*windowSize[0], :dy*windowSize[1]]
+    for y in range(0, image.shape[0]-windowSize[0], stepSize):
+        for x in range(0, image.shape[1]-windowSize[1], stepSize):
+            yield (x, y, image[y:y + windowSize[1], x:x + windowSize[0]])
+
+class HOGSVMClassifier(Classifier):
+    def __init__(self):
+        self.hasWeights = False
+        self.clf = None
+        self.load()
+
+
+    def predict(self, patches):
+        result = np.zeros((19*19))
+        for i, patch in enumerate(patches):
+            HOG = self.extract_feature_image(patch)
+            P = self.clf.predict(HOG.reshape(1,-1))
+            result[i] = P
+        result = result.reshape(19,19).T.reshape(-1)
+        return result
+
+
+    def extract_feature_image(self, patches):
+        patches = cv2.resize(patches, (32,32))
+        fd = hog(patches, orientations=8, pixels_per_cell=(8,8),
+                    cells_per_block=(1,1), visualize=False)
+        #cv2.imshow('img', img) 
+        #cv2.waitKey(400)
+
+        return fd
+
+
+    def train(self):
+        X_train, y_train, X_test, y_test = load_and_augment_training_data(self.extract_feature_image)
+
+        self.clf = make_pipeline(StandardScaler(), SVC(gamma='auto', probability=True))
+       
+        self.clf.fit(X_train, y_train)
+
+        y_pred = self.clf.predict(X_test)
+
+        print(classification_report(y_test, y_pred))
+
+        self.hasWeights = True
+        self.store()
+
+
+
+
+    def load(self):
+        if os.path.exists('weights/hogsvm.joblib'):
+            self.clf = load('weights/hogsvm.joblib')
+            self.hasWeights = True
+        else:
+            print('Failed to Restore Classification Alg')
+            self.hasWeights = False
+
+    def store(self):
+        dump(self.clf , 'weights/hogsvm.joblib')
 
 
 
@@ -155,10 +229,12 @@ class HaarClassifier(Classifier):
 
     def extract_feature_image(self, img, feature_type, feature_coord=None):
         """Extract the haar feature for the current image"""
+        img = cv2.resize(img, (32,32))
         ii = integral_image(img)
-        return haar_like_feature(ii, 0, 0, ii.shape[0], ii.shape[1],
+        ret = haar_like_feature(ii, 0, 0, ii.shape[0], ii.shape[1],
                                 feature_type=feature_type,
                                 feature_coord=feature_coord)
+        return ret
 
     def predict(self, patches):
         x = []
@@ -168,8 +244,6 @@ class HaarClassifier(Classifier):
                                             self.feature_coord_sel))
         lbl = self.clf.predict(x)
         # replace corners
-        #lbl[lbl==3] = 2
-        #lbl[lbl==4] = 2
         return lbl
 
     def predict_prob(self, patches):
@@ -304,19 +378,30 @@ class HaarClassifier(Classifier):
         self.store()
 
     def load(self):
-        if os.path.exists('haar.joblib'):
-            self.clf = load('haar.joblib')
-            self.feature_coord_sel = load('feat_coord.joblib')
-            self.feature_type_sel = load('feat_type.joblib')
+        import pickle
+        if os.path.exists('weights/haar.pkl'):
+            with open('weights/haar.pkl', 'rb') as file:
+                self.clf = pickle.load(file)
+            with open('weights/feat_coord.pkl', 'rb') as file:
+                self.feature_coord_sel = pickle.load(file)
+            with open('weights/feat_type.pkl', 'rb') as file:
+                self.feature_type_sel = pickle.load(file)
             self.hasWeights = True
+
+        #if os.path.exists('weights/haar.joblib'):
+        #    self.clf = load('weights/haar.joblib')
+        #    self.feature_coord_sel = load('weights/feat_coord.joblib')
+        #    self.feature_type_sel = load('weights/feat_type.joblib')
+        #    self.hasWeights = True
         else:
             print('Failed to Restore Classification Alg')
             self.hasWeights = False
 
     def store(self):
-        dump(self.clf , 'haar.joblib')
-        dump(self.feature_coord_sel, 'feat_coord.joblib')
-        dump(self.feature_type_sel , 'feat_type.joblib')
+        pass
+        #dump(self.clf , 'haar.joblib')
+        #dump(self.feature_coord_sel, 'weights/feat_coord.joblib')
+        #dump(self.feature_type_sel , 'weights/feat_type.joblib')
 
 class GoClassifier(Classifier):
     def __init__(self) -> None:
@@ -582,11 +667,42 @@ class BOWClassifier(Classifier):
         dump(self.model, 'knn.joblib') 
         dump(self.BOW, 'bow.joblib') 
 
+class HaarCascadeClassifier(Classifier):
+    def __init__(self):
+        self.cls = cv2.CascadeClassifier()
+        self.load()
+
+    def train(self):
+        pass
+    
+    def load(self):
+        self.cls.load('weights/cascade2.xml')
+
+    def predict(self, img):
+        frame_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        frame_gray = cv2.equalizeHist(frame_gray)
+        stones = self.cls.detectMultiScale(frame_gray, 
+                                            scaleFactor=1.3, 
+                                            minSize=(11,11), 
+                                            maxSize=(32,32))
+        for (x,y,w,h) in stones:
+            center = (x + w//2, y + h//2)
+            img = cv2.ellipse(img, center, (w//2, h//2), 0, 0, 360, (255, 0, 255), 4)
+        cv2.imshow('Capture - Face detection', img)
+        cv2.waitKey(0)
 
 if __name__ == '__main__':
-    cls = HaarClassifier()
+    cls = HOGSVMClassifier()
     cls.train()
 
+    #for i in range(1,8):
+    #    img = cv2.imread('debug/{}.png'.format(i))
+    #    result = cls.predict(img)
+    #    plt.subplot(121)
+    #    plt.imshow(result)
+    #    plt.subplot(122)
+    #    plt.imshow(img)
+    #    plt.show() 
 
 
 

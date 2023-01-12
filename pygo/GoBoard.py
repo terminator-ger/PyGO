@@ -70,9 +70,9 @@ class GoBoard(DebugInfoProvider, Timing):
         for key in debugkeys:
             self.available_debug_info[key.name] = False
 
-        Signals.subscribe(OnCameraGeometryChanged, self.camera_geometry_has_changed)
-        Signals.subscribe(OnInputChanged, self.reset)
-        Signals.subscribe(DetectBoard, self.__calib)
+        CoreSignals.subscribe(OnCameraGeometryChanged, self.camera_geometry_has_changed)
+        CoreSignals.subscribe(OnInputChanged, self.reset)
+        CoreSignals.subscribe(DetectBoard, self.__calib)
 
 
     def __calib(self, args) -> None:
@@ -429,9 +429,10 @@ class GoBoard(DebugInfoProvider, Timing):
         logging.debug2(self.H)
         logging.info("Board detected")
 
-        Signals.emit(OnGridSizeUpdated, self.cell_w, self.cell_h)
-        Signals.emit(OnBoardDetected, self.extract(img) , corners, self.H)
-        Signals.emit(OnBoardGridSizeKnown, self.go_board_shifted)
+        CoreSignals.emit(OnGridSizeUpdated, self.cell_w, self.cell_h)
+        CoreSignals.emit(OnBoardDetected, self.extract(img) , corners, self.H)
+        UISignals.emit(UIOnBoardDetected, self.extract(img) , corners, self.H)
+        CoreSignals.emit(OnBoardGridSizeKnown, self.go_board_shifted)
 
 
     def check_board_alignment(self, img:Image) -> bool:

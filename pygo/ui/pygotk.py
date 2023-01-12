@@ -4,6 +4,7 @@ import pdb
 import numpy as np
 import threading
 import PIL
+import time
 import logging
 
 from PIL import ImageTk
@@ -111,6 +112,7 @@ class PyGOTk:
         debugmenu.add_cascade(label='Loglevel', menu=debuglevelmenu)
         debugmenu.add_cascade(label='Views', menu=debugviewsmenu)
         debugmenu.add_command(label='Take Screenshot', command=self.save_image)
+        debugmenu.add_command(label='Save Training Data', command=self.save_training_data)
         self.menubar.add_cascade(label="Debug", menu=debugmenu)
 
         self.pane_left = tk.Frame(master=self.root)
@@ -175,11 +177,11 @@ class PyGOTk:
 
         self.moveHistory = []
 
-        Signals.subscribe(UpdateLog, self.updateLog)
-        Signals.subscribe(OnBoardDetected, self.updateGrid)
-        Signals.subscribe(GameReset, self.__clear_log)
-        Signals.subscribe(UIDrawStoneOnTimeline, self.videoAddNewMove)
-        Signals.subscribe(VideoFrameCounterUpdated, self.video_frame_counter_udpated)
+        UISignals.subscribe(UIUpdateLog, self.updateLog)
+        UISignals.subscribe(UIOnBoardDetected, self.updateGrid)
+        UISignals.subscribe(UIGameReset, self.__clear_log)
+        UISignals.subscribe(UIDrawStoneOnTimeline, self.videoAddNewMove)
+        UISignals.subscribe(UIVideoFrameCounterUpdated, self.video_frame_counter_udpated)
 
 
     def video_frame_counter_udpated(self, args):
@@ -191,9 +193,31 @@ class PyGOTk:
         idx = len(os.listdir('./debug'))
         cv2.imwrite('./debug/{}.png'.format(idx+1), self.pygo.img_cropped)
 
+    def save_training_data(self):
+        if not self.pygo.Board.hasEstimate:
+            return
+
+        os.makedirs('./data/0', exist_ok=True) 
+        os.makedirs('./data/1', exist_ok=True) 
+        os.makedirs('./data/2', exist_ok=True) 
+        pred = self.pygo.PatchClassifier.predict(self.pygo.img_cropped).T
+        patches = self.pygo.PatchClassifier.image_to_patches(self.pygo.img_cropped)
+        BS = self.pygo.Game.board_size
+        for x in range(BS):
+            for y in range(BS):
+                fstr = "{}_{}_{}".format(time.time(), x, y)
+                P = cv2.resize(patches[x*BS+y], (32,32))
+                if pred[x,y] == C2N('W'):
+                    cv2.imwrite('./data/{}/{}.png'.format(C2N("W"), fstr), P)
+                elif pred[x,y] == C2N('B'):
+                    cv2.imwrite('./data/{}/{}.png'.format(C2N("B"), fstr), P)
+                else:
+                    cv2.imwrite('./data/{}/{}.png'.format(C2N("E"), fstr), P)
+
+
 
     def onDetectHandicap(self):
-        Signals.emit(DetectHandicap)
+        CoreSignals.emit(DetectHandicap)
 
     def videoAddNewMove(self, args):
         colour = args[0]
@@ -305,22 +329,22 @@ class PyGOTk:
         return self.pygo.input_stream.is_video
 
     def GamePause(self) -> None:
-        Signals.emit(GamePause)
+        CoreSignals.emit(GamePause)
     
     def GameRun(self) -> None:
-        Signals.emit(GameRun)
+        CoreSignals.emit(GameRun)
     
     def GameTreeBack(self) -> None:
         if self.game_is_active:
-            Signals.emit(GameTreeBack)
+            CoreSignals.emit(GameTreeBack)
         if self.game_is_video:
-            Signals.emit(GamePause)
+            CoreSignals.emit(GamePause)
 
     def GameTreeForward(self) -> None:
         if self.game_is_active:
-            Signals.emit(GameTreeForward)
+            CoreSignals.emit(GameTreeForward)
         if self.game_is_video:
-            Signals.emit(GamePause)
+            CoreSignals.emit(GamePause)
     
     def switchState(self, fn, name, state):
         if state.get():
@@ -348,7 +372,7 @@ class PyGOTk:
             #opencv only uses the number
             dev_id = int(dev[-1])
             self.pygo.input_stream.set_input_file_stream(dev_id)
-            Signals.emit(GameReset, 19)
+            CoreSignals.emit(GameReset, 19)
             self.hide_video_ui()
             self.go_tree_pause["state"] = "normal"
         else:
@@ -442,11 +466,11 @@ class PyGOTk:
 
 
         self.settings_window.protocol("WM_DELETE_WINDOW", self.on_settings_closing)
-        Signals.emit(OnSettingsChanged, self.settings)
+        CoreSignals.emit(OnSettingsChanged, self.settings)
 
     def on_settings_closing(self):
         logging.debug("Settings changed")
-        Signals.emit(OnSettingsChanged, self.settings)
+        CoreSignals.emit(OnSettingsChanged, self.settings)
 
         self.settings_window.destroy()
 
@@ -459,16 +483,16 @@ class PyGOTk:
         else:
             self.QUIT = True
             self.root.destroy()
+        CoreSignals.emit(Exit)
 
     def quit(self):
-        self.pygo.input_stream.release()
         self.root.quit()
         self.root.destroy()
 
 
     def onBoardDetect(self) -> None:
         # ask for board detection
-        Signals.emit(DetectBoard, self.pygo.img_cam)
+        CoreSignals.emit(DetectBoard, self.pygo.img_cam)
 
     def onFileOpen(self) -> None:
         return
@@ -489,7 +513,7 @@ class PyGOTk:
 
     def onGameNew(self) -> None:
         self.__clear_log()
-        Signals.emit(GameNew, 19)
+        CoreSignals.emit(GameNew, 19)
 
     def updateLog(self, args):
         moves = args[0]
@@ -530,6 +554,8 @@ class PyGOTk:
 
 
     def update(self) -> None:
+        UISignals.process_signals()
+
         if self.weOwnControllLooop:
             self.pygo.run_once()
         if str(self.pygo.msg) != '':

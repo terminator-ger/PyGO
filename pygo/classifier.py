@@ -6,7 +6,7 @@ import numpy as np
 
 
 from enum import Enum, auto
-from typing import Tuple
+from typing import Tuple, List
 from dataclasses import dataclass
 from scipy.ndimage import label
 from scipy.signal import convolve2d
@@ -15,7 +15,7 @@ from skimage.filters import sobel
 from skimage.draw import circle_perimeter
 from skimage.transform import hough_circle, hough_circle_peaks
 
-from pygo.Signals import OnBoardGridSizeKnown, Signals
+from pygo.Signals import OnBoardGridSizeKnown, CoreSignals
 from pygo.utils.line import point_in_circle
 from pygo.utils.debug import Timing
 from pygo.utils.image import *
@@ -23,6 +23,7 @@ from pygo.utils.debug import DebugInfoProvider
 from pygo.utils.plot import Plot
 from pygo.utils.typing import B1CImage, B3CImage, GoBoardClassification
 from pygo.GoBoard import GoBoard
+from pygo.classifier_experimental import HaarClassifier, HOGSVMClassifier
 
 
 warnings.filterwarnings('always') 
@@ -58,6 +59,7 @@ class debugkeys(Enum):
     DETECT0 = auto()    # circle
     DETECT1 = auto()
     DETECT2 = auto()
+    DETECT3 = auto()
 
 
 @dataclass
@@ -75,6 +77,8 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         Timing.__init__(self)
         DebugInfoProvider.__init__(self)
 
+        #self.haar_classifier = HaarClassifier()
+        self.hogsvm_classifier = HOGSVMClassifier()
         self.size = size 
         self.hasWeights = True
         self.BOARD=BOARD
@@ -118,9 +122,16 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
             self.available_debug_info[key.name] = False
 
         self.cv_settings =  CV2PlotSettings()
-        Signals.subscribe(OnBoardGridSizeKnown, self.update_grid_size)
+        CoreSignals.subscribe(OnBoardGridSizeKnown, self.update_grid_size)
 
 
+    def image_to_patches(self, img: B3CImage) -> List[B3CImage]:
+        w = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))//2).astype(int)+2
+        h = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,1], axis=1))//2).astype(int)+2
+        patches = []
+        for (x,y) in self.BOARD.go_board_shifted.astype(int):
+            patches.append(img[x-w:x+w, y-h:y+h])
+        return patches
 
 
     def predict(self, img: B3CImage) -> GoBoardClassification:
@@ -129,7 +140,12 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         detections_circle = self._detect_circle_detection_on_gradient(img.copy())
         detections_hidden = self._detect_hidden_intersection(img.copy())
         detections_blobb  = self._detect_blobb(img.copy())
-
+        hog_pred         = self.hogsvm_classifier.predict(self.image_to_patches(img))
+        detections_hog = []
+        for idx, (x,y) in enumerate(self.BOARD.go_board_shifted.astype(int).reshape(-1,2)):
+            if hog_pred[idx]:
+                detections_hog.append([x,y])
+        detections_hog = np.array(detections_hog)
 
 
         cell_w = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))//2).astype(int)
@@ -143,6 +159,8 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         img_detect0 = img.copy()
         img_detect1 = img.copy()
         img_detect2 = img.copy()
+        img_detect3 = img.copy()
+
         font = cv2.FONT_HERSHEY_SIMPLEX
         fontScale = .7
         color = (255, 0, 0)
@@ -152,7 +170,8 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
             isin_circle = np.all(np.equal(coord, detections_circle),axis=1).any().astype(int) if len(detections_circle) > 0 else 0
             isin_hidden = np.all(np.equal(coord, detections_hidden),axis=1).any().astype(int) if len(detections_hidden) > 0 else 0
             isin_blobb  = np.all(np.equal(coord, detections_blobb),axis=1).any().astype(int) if len(detections_blobb)   > 0 else 0
-
+            isin_hog    = np.all(np.equal(coord, detections_hog),axis=1).any().astype(int) if len(detections_hog)   > 0 else 0
+            
             cv2.putText(img=img_detect0, 
                         text=str(isin_circle), 
                         org=coord+np.array([-5,5]), 
@@ -180,7 +199,17 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
                         thickness=thickness, 
                         lineType=cv2.LINE_AA)
 
-            p_stone = isin_circle * 0.25 + isin_hidden * 0.5 + isin_blobb * 0.25
+            cv2.putText(img=img_detect3, 
+                        text=str(isin_hog), 
+                        org=coord+np.array([-5,5]), 
+                        fontFace=font,
+                        fontScale=fontScale, 
+                        color=color if isin_hog > 0 else color_detect, 
+                        thickness=thickness, 
+                        lineType=cv2.LINE_AA)
+
+
+            p_stone = isin_circle * 0.125 + isin_hidden * 0.5 + isin_blobb * 0.125 + isin_hog *0.25
 
             if p_stone > 0.5:
                 cv2.circle(markers, coord, cell_w+3, 0, -1)
@@ -194,6 +223,7 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         self.showDebug(debugkeys.DETECT0, img_detect0)
         self.showDebug(debugkeys.DETECT1, img_detect1)
         self.showDebug(debugkeys.DETECT2, img_detect2)
+        self.showDebug(debugkeys.DETECT3, img_detect3)
         self.showDebug(debugkeys.MASK, mask)
 
         val,_ = self.__analyse(detected_circles, value)
