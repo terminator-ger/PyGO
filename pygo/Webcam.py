@@ -26,21 +26,21 @@ class Webcam:
 
         self.__update_ports()
         self.__auto_calibrate()
-        Signals.subscribe(GamePause, self.pause_stream)
-        Signals.subscribe(GameRun, self.unpause_stream)
-        Signals.subscribe(InputStreamSeek, self.set_pos)
+        CoreSignals().subscribe(GamePause, self.pause_stream)
+        CoreSignals().subscribe(GameRun, self.unpause_stream)
+        CoreSignals().subscribe(InputStreamSeek, self.set_pos)
 
-        Signals.subscribe(InputForward, self._forward)
-        Signals.subscribe(InputForward10, self._forward10)
-        Signals.subscribe(InputBackward, self._backward)
-        Signals.subscribe(InputBackward10, self._backward10)
+        CoreSignals().subscribe(InputForward, self._forward)
+        CoreSignals().subscribe(InputForward10, self._forward10)
+        CoreSignals().subscribe(InputBackward, self._backward)
+        CoreSignals().subscribe(InputBackward10, self._backward10)
 
     def _forward(self, args):
         cur = self.get_pos()  / self.fps
         next = cur + 60 
         self.frame_n = min(next, self.frames_total)
         self._set_pos(self.frame_n)
-        Signals.emit(PreviewNextFrame)
+        CoreSignals().emit(PreviewNextFrame)
 
 
     def _forward10(self, args):
@@ -48,7 +48,7 @@ class Webcam:
         next = cur + 10 
         self.frame_n = min(next, self.frames_total)
         self._set_pos(self.frame_n)
-        Signals.emit(PreviewNextFrame)
+        CoreSignals().emit(PreviewNextFrame)
 
 
     def _backward(self, args):
@@ -56,7 +56,7 @@ class Webcam:
         next = cur - 60
         self.frame_n = max(next, 0)
         self._set_pos(self.frame_n)
-        Signals.emit(PreviewNextFrame)
+        CoreSignals().emit(PreviewNextFrame)
 
 
     def _backward10(self, args):
@@ -64,7 +64,7 @@ class Webcam:
         next = cur - 10
         self.frame_n = max(next, 0)
         self._set_pos(self.frame_n)
-        Signals.emit(PreviewNextFrame)
+        CoreSignals().emit(PreviewNextFrame)
 
 
     def pause_stream(self, *args):
@@ -136,7 +136,7 @@ class Webcam:
         delta = np.array([self.scale_factor*height, self.scale_factor*width]) - np.array(self.limit_resolution)
         self.dx = int(delta[0])
         self.dy = int(delta[1])
-        Signals.emit(OnInputChanged)
+        CoreSignals().emit(OnInputChanged)
     
     def __get_next_frame(self) -> np.ndarray:
         ret, img = self.cam.read()
@@ -176,7 +176,8 @@ class Webcam:
             if self.frames_total == -1:
                 self.frame_n += 1
             else:
-                Signals.emit(VideoFrameCounterUpdated, self.get_time())
+                UISignals.emit(UIVideoFrameCounterUpdated, self.get_time())
+                CoreSignals.emit(VideoFrameCounterUpdated, self.get_time())
             return frame
  
 

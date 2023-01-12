@@ -17,19 +17,12 @@ from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
 from pygo.utils.typing import Move, NetMove, GoBoardClassification
 from pygo.utils.misc import coordinate_to_letter, pygo_to_go_coord_sys, pygo_to_sgfmill_coord_sys, sgfmill_to_pygo_coord_sys
 from pygo.Signals import *
-
+from pygo.Settings import PyGOSettings, MoveValidationAlg
 
 class GameState(Enum):
     RUNNING = auto()
     PAUSED = auto()
     NOT_STARTED = auto()
-
-class MoveValidationAlg(Enum):
-    NONE = auto()
-    ONE_MOVE = auto()
-    TWO_MOVES = auto()
-    MULTI_MOVES = auto()
-
 
 class Game(DebugInfoProvider, Timing):
     def __init__(self):
@@ -51,19 +44,13 @@ class Game(DebugInfoProvider, Timing):
         self.state_history = []
         self.cur_time = None
 
-        self.settings  = {
-            'AllowUndo': False,
-            'MoveValidation': MoveValidationAlg.TWO_MOVES
-        }
+        CoreSignals.subscribe(GameRun, self.__game_run)
+        CoreSignals.subscribe(GamePause, self.__game_pause)
+        CoreSignals.subscribe(GameReset, self.__resetGameState)
 
-        Signals.subscribe(OnSettingsChanged, self.settings_updated)
-        Signals.subscribe(GameRun, self.__game_run)
-        Signals.subscribe(GamePause, self.__game_pause)
-        Signals.subscribe(GameReset, self.__resetGameState)
-
-        Signals.subscribe(GameNew, self.__startNewGame)
-        Signals.subscribe(GameTreeBack, self.__game_tree_back)
-        Signals.subscribe(GameTreeForward, self.__game_tree_forward)
+        CoreSignals.subscribe(GameNew, self.__startNewGame)
+        CoreSignals.subscribe(GameTreeBack, self.__game_tree_back)
+        CoreSignals.subscribe(GameTreeForward, self.__game_tree_forward)
 
     #######################################
     # Temporal Manipulation Routines
@@ -100,7 +87,8 @@ class Game(DebugInfoProvider, Timing):
             self.last_x = x
             self.last_y = y
 
-            Signals.emit(UpdateLog, self.get_move_list())
+            CoreSignals.emit(UpdateLog, self.get_move_list())
+            UISignals.emit(UIUpdateLog, self.get_move_list())
 
 
     def __game_tree_forward(self, *args):
@@ -129,7 +117,8 @@ class Game(DebugInfoProvider, Timing):
             self.last_x = x
             self.last_y = y
             next_moves.reparent(par_node, 0)
-            Signals.emit(UpdateLog, self.get_move_list())
+            CoreSignals.emit(UpdateLog, self.get_move_list())
+            UISignals.emit(UIUpdateLog, self.get_move_list())
 
 
     def isPaused(self):
@@ -170,7 +159,8 @@ class Game(DebugInfoProvider, Timing):
         self.cur_time = datetime.now().strftime("%d-%m-%Y")
 
         self.GS = GameState.RUNNING
-        Signals.emit(UpdateLog, self.get_move_list())
+        CoreSignals.emit(UpdateLog, self.get_move_list())
+        UISignals.emit(UIUpdateLog, self.get_move_list())
 
 
     def undo(self) -> None:
@@ -234,7 +224,8 @@ class Game(DebugInfoProvider, Timing):
             self.manualMoves.append([c, (x,y)])
             logging.debug("Manual overwrite: Adding {} Stone at {} {}".format(N2C(c), x+1,y+1))
 
-        Signals.emit(UpdateLog, self.get_move_list())
+        CoreSignals.emit(UpdateLog, self.get_move_list())
+        UISignals.emit(UIUpdateLog, self.get_move_list())
         return self.applyManualMoves(self.state)
 
 
@@ -301,7 +292,8 @@ class Game(DebugInfoProvider, Timing):
         self.state[x,y] = c
         self.last_color = c
         if self.GS == GameState.RUNNING:
-            Signals.emit(UpdateLog, self.get_move_list())
+            CoreSignals.emit(UpdateLog, self.get_move_list())
+            UISignals.emit(UIUpdateLog, self.get_move_list())
 
 
     def _captureStone(self, x: int, y: int) -> None:
@@ -414,7 +406,7 @@ class Game(DebugInfoProvider, Timing):
         if self.GS == GameState.RUNNING:
             self.updateStateWithChecks(state)
 
-            if self.settings['MoveValidation'] == MoveValidationAlg.TWO_MOVES:
+            if PyGOSettings['MoveValidation'] == MoveValidationAlg.TWO_MOVES:
                 # run a second time in case we have two moves 
                 self.updateStateWithChecks(state)
    
@@ -484,8 +476,9 @@ class Game(DebugInfoProvider, Timing):
             # White starts
             self.last_color = C2N("B")
             # update log
-            Signals.emit(UpdateLog, self.get_move_list())
-            Signals.emit(GameHandicapMove, len(moves_black)+len(moves_white))
+            CoreSignals.emit(UpdateLog, self.get_move_list())
+            UISignals.emit(UIUpdateLog, self.get_move_list())
+            CoreSignals.emit(GameHandicapMove, len(moves_black)+len(moves_white))
         else:
             logging.info('No handicap detected')
             # start with black
@@ -507,7 +500,7 @@ class Game(DebugInfoProvider, Timing):
             if c_str !='E':
                 logging.debug('Adding {} at {} {}'.format(c_str, x, y))
                 self._setStone(x, y, c_str)
-                Signals.emit(GameNewMove, c_str)    # notify timebar
+                CoreSignals.emit(GameNewMove, c_str)    # notify timebar
 
             if c_str == 'E':
                 logging.debug('Removing {} at {} {}'.format(c_str, x, y))
@@ -525,13 +518,6 @@ class Game(DebugInfoProvider, Timing):
         root_tree = self.game_tree.get_main_sequence()
         for node in root_tree:
             print(node.get_move())
-
-
-    def settings_updated(self, args):
-        new_settings = args[0]
-        for k in self.settings.keys():
-            if k in new_settings.keys():
-                self.settings[k] = new_settings[k].get()
 
 
     def getCurrentState(self) -> GoBoardClassification:
@@ -697,7 +683,7 @@ class Game(DebugInfoProvider, Timing):
             removed = removed[0]
             if (removed[1][0] == self.last_x and removed[1][1] == self.last_y):
                 # case a)
-                if self.settings['AllowUndo']:
+                if PyGOSettings['AllowUndo']:
                     return newState
                 else:
                     return self.state

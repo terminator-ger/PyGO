@@ -1,7 +1,15 @@
 import logging
+from enum import Enum, auto
 
-from pygo.Signals import Signals, OnSettingsChanged
-from pygo.Game import MoveValidationAlg
+from pygo.Signals import CoreSignals, OnSettingsChanged
+
+
+class MoveValidationAlg(Enum):
+    NONE = auto()
+    ONE_MOVE = auto()
+    TWO_MOVES = auto()
+    MULTI_MOVES = auto()
+
 
 PyGOSettings = {
     # Motion Detection 
@@ -14,13 +22,3 @@ PyGOSettings = {
 }
 
 
-def settings_updated(args):
-    new_settings = args[0]
-    logging.info("Settings updated:")
-    for k in PyGOSettings.keys():
-        if k in new_settings.keys():
-            PyGOSettings[k] = new_settings[k].get()
-        logging.info("{} : {}".format(k, PyGOSettings[k]))
-
-
-Signals.subscribe(OnSettingsChanged, settings_updated)
