@@ -1,12 +1,11 @@
 from argparse import ArgumentError
 import cv2
-import lsd
 import logging
 import numpy as np
 
 from enum import Enum, auto
 
-from thirdparty.XiaohuLuVPDetection.lu_vp_detect import VPDetection, LS_ALG
+from lu_vp_detect import VPDetection, LS_ALG
 from skimage import transform
 
 from scipy.spatial.distance import cdist
@@ -23,9 +22,6 @@ from pygo.utils.typing import B1CImage, B3CImage, Point2D, Point3D, Image, Mask,
 from pygo.utils.image import toColorImage
 
 
-
-
-
 class debugkeys(Enum):
     Detected_Lines = auto()
     Detected_Grid = auto()
@@ -35,16 +31,27 @@ class debugkeys(Enum):
 class NoVanishingPointsDetectedException(Exception):
     pass
 
+class CORNER_DETECTION_ALG(Enum):
+    WITH_VP = auto()
+    FAST = auto()
+    CPD = auto()
+
 class GoBoard(DebugInfoProvider, Timing):
-    def __init__(self, camera_calibration: CameraCalib):
+    def __init__(self, 
+                 camera_calibration: Optional[CameraCalib], 
+                 corner_detection_alg: CORNER_DETECTION_ALG = CORNER_DETECTION_ALG.WITH_VP):
         DebugInfoProvider.__init__(self)
         Timing.__init__(self)
-
+        self.corner_detection_alg = corner_detection_alg
         self.camera_calibration = camera_calibration
-        self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
+        self.vp = None
+        if self.camera_calibration is not None:
+            self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
                               principal_point=self.camera_calibration.get_center(), 
                               length_thresh=50,
-                              line_search_alg=LS_ALG.LSD_WITH_MERGE)
+                              line_search_alg=LS_ALG.LSD)
+        if self.corner_detection_alg == CORNER_DETECTION_ALG.WITH_VP and self.vp is None:
+            raise RuntimeWarning("You selected a corner algorithm which requieres a camera configuration. Cameras configuration was not provided")
  
         self.H = np.eye(3)
         self.hasEstimate = False
@@ -80,14 +87,16 @@ class GoBoard(DebugInfoProvider, Timing):
         self.calib(img)
 
     def camera_geometry_has_changed(self, *args) -> None:
-        self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
+        if self.camera_calibration is not None:
+            self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
                               principal_point=self.camera_calibration.get_center(), 
                               length_thresh=50,
                               line_search_alg=LS_ALG.LSD_WITH_MERGE)
 
 
     def reset(self, *args) -> None:
-        self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
+        if self.camera_calibration is not None:
+            self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
                               principal_point=self.camera_calibration.get_center(), 
                               length_thresh=50,
                               line_search_alg=LS_ALG.LSD_WITH_MERGE)
@@ -150,7 +159,7 @@ class GoBoard(DebugInfoProvider, Timing):
             return None
 
 
-    def get_corners(self, vp1: Optional[Point2D], vp2: Optional[Point2D], img: Image) -> NDArray:
+    def get_corners(self, img:Image, vp1: Optional[Point2D], vp2: Optional[Point2D]) -> NDArray:
         '''
         vp1: 2d vanishing point
         vp2: 2d vanishing point
@@ -265,12 +274,19 @@ class GoBoard(DebugInfoProvider, Timing):
             logging.debug('Running corner detection WITHOUT vanishing point module')
 
         img_bw = self.binarizeImage(img, C=10)
-        corners = self.get_corners(vp1, vp2, img_bw)
+        corners = self.get_corners(img_bw, vp1, vp2)
         corners = self.refine_corners(corners, img)
+        if corners is not None:
+            self.update_grid(img_bw, corners)
+            if self.check_board_alignment(img_bw):
+                # stop search when the have found a good solution
+                logging.info("Board position found")
+                self.hasEstimate=True
+
+
         logging.debug('Corners {}'.format(corners))
  
         return corners
-
 
 
     def update_grid(self, img: Image, corners: NDArray) -> None:
@@ -306,7 +322,7 @@ class GoBoard(DebugInfoProvider, Timing):
             # test different thresholds as different illumination conditions demand
             # different settings
             img_bw = self.binarizeImage(img, C)
-            corners = self.get_corners(vp1, vp2, img_bw)
+            corners = self.get_corners(img_bw, vp1, vp2)
             corners = self.refine_corners(corners, img)
 
             if corners is not None:
@@ -378,6 +394,7 @@ class GoBoard(DebugInfoProvider, Timing):
  
         return img_
 
+
     def track_corners(self, img: B3CImage) -> NDArray:
         # for fast binarization we use a preset threshold, this can fail on extreme 
         # illuminations
@@ -410,23 +427,29 @@ class GoBoard(DebugInfoProvider, Timing):
         img_c = img
         img = toCMYKImage(img)[:,:,3]
 
-        try:
-            vp1, vp2 = self.get_vp(img) 
-        except NoVanishingPointsDetectedException:
-            return False
+        if self.corner_detection_alg == CORNER_DETECTION_ALG.WITH_VP:
+            try:
+                # assumption most lines in the image are from the go board 
+                # -> vp give us the plane
+                # the contour which belongs to those vp is the board
+                vp1, vp2 = self.get_vp(img) 
+                corners = self.detect_board_corners(img_c, vp1, vp2)
+            except NoVanishingPointsDetectedException:
+                return False
 
-        # assumption most lines in the image are from the go board 
-        # -> vp give us the plane
-        # the contour which belongs to those vp is the board
-        corners = self.detect_board_corners(vp1, vp2, img_c)
+        elif self.corner_detection_alg == CORNER_DETECTION_ALG.FAST:
+            corners = self.detect_board_corners_fast(img_c)
+        elif self.corner_detection_alg == CORNER_DETECTION_ALG.CPD:
+            corners = self.detect_board_cpd(img_c)
+            
         if corners is None:
             logging.error("Could not detect Go-Board corners!")
             return
 
-        logging.debug2('Grid width {}'.format(self.cell_w))
-        logging.debug2('Grid height {}'.format(self.cell_h))
+        logging.debug('Grid width {}'.format(self.cell_w))
+        logging.debug('Grid height {}'.format(self.cell_h))
 
-        logging.debug2(self.H)
+        logging.debug(self.H)
         logging.info("Board detected")
 
         CoreSignals.emit(OnGridSizeUpdated, self.cell_w, self.cell_h)
@@ -500,7 +523,6 @@ class GoBoard(DebugInfoProvider, Timing):
             the fast Shi-Tomasi corner detector
         '''
 
-        #c = np.squeeze(corners)
         if corners is None:
             return None
         cH = cv2.convertPointsToHomogeneous(corners)
@@ -516,8 +538,6 @@ class GoBoard(DebugInfoProvider, Timing):
         H_board, _ = cv2.findHomography(target_corners, corners)
         _, (x,y) = mask_board(img, grid, self.border_size)
         go_board_shifted = grid - np.array([x,y])
-
-
 
         #convert corners into rectified version
         cHw = []

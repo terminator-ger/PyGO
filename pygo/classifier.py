@@ -92,7 +92,7 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         self.params.maxCircularity = 1.0
         
         self.params.filterByConvexity = False
-        self.params.minConvexity = 0.0
+        self.params.minConvexity = 0.01
         self.params.maxConvexity = 1.0
 
         self.params.filterByArea = True
@@ -286,10 +286,10 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
 
         #HSV+ INPAINT + CLAHE
         lab1 = cv2.cvtColor(result, cv2.COLOR_BGR2LAB)
-        lab_planes1 = cv2.split(lab1)
+        l,a,b = cv2.split(lab1)
         clahe1 = cv2.createCLAHE(clipLimit=2.0,tileGridSize=(8,8))
-        lab_planes1[0] = clahe1.apply(lab_planes1[0])
-        lab1 = cv2.merge(lab_planes1)
+        l  = clahe1.apply(l)
+        lab1 = cv2.merge((l,a,b))
         clahe_bgr1 = cv2.cvtColor(lab1, cv2.COLOR_LAB2BGR)
         return clahe_bgr1
 

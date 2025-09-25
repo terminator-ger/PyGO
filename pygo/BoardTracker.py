@@ -40,7 +40,7 @@ class BoardTracker(DebugInfoProvider):
                 z_n = np.sqrt(np.sum(z_n ** 2, axis=1)) / std 
                 self.s_h = np.maximum(0, self.s_h + z_n - self.w)
 
-                logging.debug2("s_h: {}".format(self.s_h))
+                logging.debug("s_h: {}".format(self.s_h))
 
                 shifted_corners_h = np.sum(self.s_h > self.T)
                 _,_ = self.corners_stats.update(corners)

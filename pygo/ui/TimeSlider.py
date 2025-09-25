@@ -70,13 +70,13 @@ class TimeSlider(tk.Frame):
         self.img_fw10   = Image.open('img/fast-forward.png')
         self.img_pause  = Image.open('img/pause.png')
 
-        self.img_fb      = self.img_fb.resize((32,32), Image.ANTIALIAS) 
-        self.img_fb10    = self.img_fb10.resize((32,32), Image.ANTIALIAS) 
-        self.img_pr      = self.img_pr.resize((32,32), Image.ANTIALIAS) 
-        self.img_p       = self.img_p.resize((32,32), Image.ANTIALIAS) 
-        self.img_fw      = self.img_fw.resize((32,32), Image.ANTIALIAS) 
-        self.img_fw10    = self.img_fw10.resize((32,32), Image.ANTIALIAS) 
-        self.img_pause   = self.img_pause.resize((32,32), Image.ANTIALIAS)
+        self.img_fb      = self.img_fb.resize((32,32), Image.LANCZOS) 
+        self.img_fb10    = self.img_fb10.resize((32,32), Image.LANCZOS) 
+        self.img_pr      = self.img_pr.resize((32,32), Image.LANCZOS) 
+        self.img_p       = self.img_p.resize((32,32), Image.LANCZOS) 
+        self.img_fw      = self.img_fw.resize((32,32), Image.LANCZOS) 
+        self.img_fw10    = self.img_fw10.resize((32,32), Image.LANCZOS) 
+        self.img_pause   = self.img_pause.resize((32,32), Image.LANCZOS)
 
         self.img_btn_fb    = ImageTk.PhotoImage(self.img_fb)
         self.img_btn_fb10  = ImageTk.PhotoImage(self.img_fb10)
@@ -276,7 +276,7 @@ class TimeSlider(tk.Frame):
         if new_time != 0:
             new_time /= t_end_rescaled
         
-        logging.debug2("Time update, moving to {}".format(new_time))
+        logging.debug("Time update, moving to {}".format(new_time))
         self.inner_canvas.xview_moveto(new_time)
 
 
@@ -368,7 +368,7 @@ class TimeSlider(tk.Frame):
         else:
             self.w2 = self.winfo_width() / 2
 
-        logging.debug2("Scrolling to {}".format(self.scroll_start))
+        logging.debug("Scrolling to {}".format(self.scroll_start))
 
         self.inner_canvas.config(scrollregion=(self.scroll_start, 0, 
                                                self.scroll_end, 0)) 

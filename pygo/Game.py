@@ -6,7 +6,7 @@ import numpy as np
 
 from enum import Enum, auto
 from datetime import datetime
-from playsound import playsound
+from playsound3 import playsound
 
 from sgfmill import sgf, boards, sgf_moves
 from typing import List, TextIO, Tuple, Optional

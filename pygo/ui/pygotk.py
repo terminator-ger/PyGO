@@ -94,14 +94,14 @@ class PyGOTk:
         debuglevelmenu = tk.Menu(debugmenu, tearoff=0)
         debuglevelmenu.add_checkbutton(label='Info', command=self.setLogLevelInfo)
         debuglevelmenu.add_checkbutton(label='Debug', command=self.setLogLevelDebug)
-        debuglevelmenu.add_checkbutton(label='Debug2', command=self.setLogLevelDebug2)
+        debuglevelmenu.add_checkbutton(label='debug', command=self.setLogLeveldebug)
         debuglevelmenu.add_checkbutton(label='Warn', command=self.setLogLevelWarn)
 
         debugviewsmenu = tk.Menu(debugmenu, tearoff=0)
         fn, optn = self.DebugInfo.getOptions()
         self.fn = fn
         self.optn = optn
-        self.DebugViewStates = [tk.BooleanVar(False) for _ in fn]
+        self.DebugViewStates = [tk.BooleanVar(value=False) for _ in fn]
 
         for f,o,s in zip(fn, optn, self.DebugViewStates):
             debugviewsmenu.add_checkbutton(label=o, 
@@ -358,8 +358,8 @@ class PyGOTk:
     def setLogLevelDebug(self) -> None:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    def setLogLevelDebug2(self) -> None:
-        logging.getLogger().setLevel(logging.DEBUG2)
+    def setLogLeveldebug(self) -> None:
+        logging.getLogger().setLevel(logging.debug)
 
     def setLogLevelWarn(self) -> None:
         logging.getLogger().setLevel(logging.WARN)

@@ -5,7 +5,11 @@ import pdb
 from pygo.utils.image import toCMYKImage, toColorImage, toDoubleImage
 import imgaug.augmenters as iaa
 from tqdm import tqdm
+from joblib import load
+import importlib
 
+def weights_path(module: str, name: str) -> str:
+    return importlib.resources.files(module).joinpath(name)
 
 def load_training_data_old(classes):
     x = []

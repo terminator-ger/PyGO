@@ -1,5 +1,4 @@
 import numpy as np
-from distutils.log import debug
 from re import I
 from turtle import back
 
@@ -45,13 +44,12 @@ from skimage.draw import circle_perimeter
 from skimage.transform import hough_circle, hough_circle_peaks
  
 
-from pyELSD.pyELSD import PyELSD
 import warnings
 
 from pygo.utils.line import point_in_circle
 from pygo.utils.debug import Timing
 from pygo.utils.image import *
-from pygo.utils.data import load_training_data, save_training_data, load_training_data2, load_and_augment_training_data
+from pygo.utils.data import load_training_data, save_training_data, load_training_data2, load_and_augment_training_data, weights_path
 from pygo.utils.debug import DebugInfo, DebugInfoProvider
 from pygo.utils.typing import B1CImage, B3CImage, GoBoardClassification
 from pygo.GoBoard import GoBoard
@@ -98,7 +96,7 @@ class HOGSVMClassifier(Classifier):
     def extract_feature_image(self, patches):
         patches = cv2.resize(patches, (32,32))
         fd = hog(patches, orientations=8, pixels_per_cell=(8,8),
-                    cells_per_block=(1,1), visualize=False)
+                    cells_per_block=(1,1), visualize=False, channel_axis=-1)
         #cv2.imshow('img', img) 
         #cv2.waitKey(400)
 
@@ -123,11 +121,12 @@ class HOGSVMClassifier(Classifier):
 
 
     def load(self):
-        if os.path.exists('weights/hogsvm.joblib'):
-            self.clf = load('weights/hogsvm.joblib')
+        weights_file = weights_path("pygo.weights", "hogsvm.joblib")
+        if os.path.exists(weights_file):
+            self.clf = load(weights_file)
             self.hasWeights = True
         else:
-            print('Failed to Restore Classification Alg')
+            print('Failed to Restore HOGSVG Classification Alg')
             self.hasWeights = False
 
     def store(self):
@@ -212,7 +211,7 @@ class IlluminanceClassifier(Classifier):
             self.clf = load('illuminance.joblib')
             self.hasWeights = True
         else:
-            print('Failed to Restore Classification Alg')
+            print('Failed to Restore Illuminance Classification Alg')
             self.hasWeights = False
 
     def store(self):
@@ -394,7 +393,7 @@ class HaarClassifier(Classifier):
         #    self.feature_type_sel = load('weights/feat_type.joblib')
         #    self.hasWeights = True
         else:
-            print('Failed to Restore Classification Alg')
+            print('Failed to Restore Haar Classification Alg')
             self.hasWeights = False
 
     def store(self):
@@ -493,7 +492,7 @@ class GoClassifier(Classifier):
             self.model = th.load('weights.pt')
             self.hasWeights = True
         else:
-            print('Failed to Restore Classification Alg')
+            print('Failed to Restore ConvGO Classification Alg')
             self.hasWeights = False
 
     def store(self):
@@ -587,7 +586,7 @@ class KNNClassifier(Classifier):
             self.model = load('knnc.joblib')
             self.hasWeights = True
         else:
-            print('Failed to Restore Classification Alg')
+            print('Failed to Restore KNN Classification Alg')
             self.hasWeights = False
 
     def store(self):
@@ -660,7 +659,7 @@ class BOWClassifier(Classifier):
             self.BOW = load('bow.joblib')
             self.hasWeights = True
         else:
-            print('Failed to Restore Classification Alg')
+            print('Failed to Restore BOW Classification Alg')
             self.hasWeights = False
 
     def store(self):

@@ -11,20 +11,20 @@ from pygo.GoBoard import GoBoard
 from pygo.utils.plot import Plot
 from pygo.utils.debug import Timing
 from pygo.Game import Game
-from pygo.Webcam import Webcam
+from pygo.InputDevice import InputDevice
 from pygo.Signals import *
 
-logging.DEBUG2 = 5
-logging.addLevelName(logging.DEBUG2, "DEBUG2")
-logging.Logger.debug2 = lambda inst, msg, *args, **kwargs: inst.log(logging.DEBUG2, msg, *args, **kwargs)
-logging.debug2 = lambda msg, *args, **kwargs: logging.log(logging.DEBUG2, msg, *args, **kwargs)
+#logging.debug = 5
+#logging.addLevelName(logging.debug, "debug")
+#logging.Logger.debug = lambda inst, msg, *args, **kwargs: inst.log(logging.debug, msg, *args, **kwargs)
+#logging.debug = lambda msg, *args, **kwargs: logging.log(logging.debug, msg, *args, **kwargs)
 
 
 
 class PyGO(Timing):
     def __init__(self):
         Timing.__init__(self)
-        self.input_stream = Webcam()
+        self.input_stream = InputDevice()
 
         self.img_cam = self.input_stream.read()
         self.img_overlay = self.img_cam

@@ -4,6 +4,7 @@
 *.zip
 *.png
 **/__pycache__/
+build
 build/*
 PyGO.egg-info/*
 pygo/analyse2.py
