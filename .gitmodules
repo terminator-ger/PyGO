@@ -1,0 +1,6 @@
+[submodule "thirdparty/XiaohuLuVPDetection"]
+	path = thirdparty/XiaohuLuVPDetection
+	url = https://github.com/terminator-ger/XiaohuLuVPDetection
+[submodule "thirdparty/python-lsd"]
+	path = thirdparty/python-lsd
+	url = https://github.com/terminator-ger/python-lsd
