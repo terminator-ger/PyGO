@@ -3,6 +3,12 @@ numpy
 scipy
 nptyping
 scikit-image
-playsound
+#playsound
 sgfmill 
-pygobject
+#pygobject
+requests
+torch
+playsound3
+imgaug @ git+https://github.com/imaug/imaug.git@master
+tqdm
+joblib

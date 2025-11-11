@@ -1,0 +1,19 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+    
+        {
+            "name": "Python Debugger: Module",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pygo",
+            "args": [
+                "--video",
+                "E:/dev/pygo_data/AlphaGo (W) vs Ke Jie (B) $1.5 million game with AlphaGo, relaxing game of Go on a real board [GhVDiAjN-h4].mp4"
+            ]
+        }
+    ]
+}

@@ -18,7 +18,7 @@ from tkinter import filedialog as fd
 
 from pygo.core import PyGO
 from pygo.utils.typing import B3CImage, Image, NetMove
-from pygo.utils.debug import DebugInfo
+from pygo.utils.debug import DebugInfo, DebugInfoProvider
 from pygo.utils.color import C2N
 from pygo.Game import  GameState
 from pygo.Signals import *
@@ -54,6 +54,8 @@ class PyGOTk:
 
         self.root = tk.Tk()
         self.root.title('PyGO')
+        DebugInfoProvider.setTKRoot(self.root)
+        
         
         self.menubar = tk.Menu(self.root, tearoff=0)
 
@@ -113,6 +115,7 @@ class PyGOTk:
         debugmenu.add_cascade(label='Views', menu=debugviewsmenu)
         debugmenu.add_command(label='Take Screenshot', command=self.save_image)
         debugmenu.add_command(label='Save Training Data', command=self.save_training_data)
+        debugmenu.add_command(label='Set Time', command=self.set_time)
         self.menubar.add_cascade(label="Debug", menu=debugmenu)
 
         self.pane_left = tk.Frame(master=self.root)
@@ -161,7 +164,8 @@ class PyGOTk:
 
         self.settings = {'AllowUndo' : tk.BooleanVar(value=False),
                          'MotionDetectionBoard': tk.DoubleVar(value=0.02),
-                         'MotionDetectionBorder': tk.DoubleVar(value=0.001)
+                         'MotionDetectionBorder': tk.DoubleVar(value=0.001),
+                         'StaticBoard': tk.BooleanVar(value=True)
         }
 
         self.contextMenu = tk.Menu(self.root, tearoff=False)
@@ -183,6 +187,8 @@ class PyGOTk:
         UISignals.subscribe(UIDrawStoneOnTimeline, self.videoAddNewMove)
         UISignals.subscribe(UIVideoFrameCounterUpdated, self.video_frame_counter_udpated)
 
+    def set_time(self):
+        CoreSignals.emit(InputStreamSeek90)
 
     def video_frame_counter_udpated(self, args):
         cnt = args[0]
@@ -434,16 +440,26 @@ class PyGOTk:
                                     indicatoron=False, 
                                     value=0.06, 
                                     width=8)
+        
         low_button.pack(side="left")
         med_button.pack(side="left")
         high_button.pack(side="left")
 
+        board_static_button = tk.Button(self.settings_window, text="Board is static", relief="raised" if self.settings['StaticBoard'] else "sunken")
+        def toggle_board_static():
+            if board_static_button.config('relief')[-1] == 'sunken':
+                board_static_button.config(relief="raised")
+            else:
+                board_static_button.config(relief="sunken")
+                
+        board_static_button = tk.Button(self.settings_window, text="Board is static", relief="raised" if self.settings['StaticBoard'] else "sunken", command=toggle_board_static)
+        board_static_button.grid(column=0, row=4)
 
         sep = ttk.Separator(self.settings_window, orient='horizontal')
-        sep.grid(column=0, row=4, sticky='ew')
+        sep.grid(column=0, row=5, sticky='ew')
 
         lbl2 = tk.Label(self.settings_window, text="Video Input")
-        lbl2.grid(column=0, row=5)
+        lbl2.grid(column=0, row=6)
 
 
         self.v = tk.StringVar()
@@ -543,7 +559,7 @@ class PyGOTk:
 
 
 
-    def __np2tk(self, img : Image) -> ImageTk.PhotoImage: 
+    def __np2tk(self, img : Image) -> ImageTk.PhotoImage:
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         return ImageTk.PhotoImage(PIL.Image.fromarray(rgb))
 
@@ -565,7 +581,13 @@ class PyGOTk:
             self.go_tree_pause.configure(text='||')
         elif self.pygo.Game.GS == GameState.PAUSED:
             self.go_tree_pause.configure(text='|>')
-    
+        
+        def scale(img: ImageTk.PhotoImage) -> ImageTk.PhotoImage:
+            w = img.width()
+            h = img.height()
+            scale_w = 480 / w 
+            scale_h = 480 / h
+            return img.zoom(scale_w, scale_h)
 
         # switch view
         view = self.viewVar.get()
@@ -573,8 +595,10 @@ class PyGOTk:
             self.tkimage = self.__np2tk(self.pygo.img_overlay)
         elif view == 1:
             self.tkimage = self.__np2tk(self.pygo.img_cropped)
+            #self.tkimage = scale(self.tkimage)
         elif view == 2:
             self.tkimage = self.__np2tk(self.pygo.img_virtual)
+            #self.tkimage = scale(self.tkimage)
 
         self.go_board_display.configure(image=self.tkimage)
         self.go_board_display.image = self.tkimage

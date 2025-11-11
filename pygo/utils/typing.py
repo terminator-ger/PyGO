@@ -1,7 +1,7 @@
 from typing import Tuple, List, Optional, Union
 import numpy as np
 from nptyping import NDArray, Int, Shape
-from nptyping import UInt8, Float32, Float
+from nptyping import Float32, Float, UInt8
 
 Move = Tuple[str, Tuple[int, int]]
 NetMove = List[Union[str, int]] # in serial format to be sent over socket

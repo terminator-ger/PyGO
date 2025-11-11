@@ -404,7 +404,11 @@ class Game(DebugInfoProvider, Timing):
         '''
         state = self.applyManualMoves(self._unravel(state))
         if self.GS == GameState.RUNNING:
-            self.updateStateWithChecks(state)
+            if PyGOSettings['MoveValidation'] in [MoveValidationAlg.ONE_MOVE, MoveValidationAlg.TWO_MOVES]:
+                self.updateStateWithChecks(state)
+                
+            if PyGOSettings['MoveValidation'] == MoveValidationAlg.NONE:
+                self.updateStateNoChecks(state)
 
             if PyGOSettings['MoveValidation'] == MoveValidationAlg.TWO_MOVES:
                 # run a second time in case we have two moves 

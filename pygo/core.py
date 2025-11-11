@@ -1,18 +1,21 @@
+import importlib.resources
 from re import I
 import cv2
 import pdb
 import logging
 from pygo.BoardTracker import BoardTracker
 from pygo.Keyframes import History
+import importlib
 
 from pygo.classifier import *
 from pygo.Motiondetection import *
-from pygo.GoBoard import GoBoard
+from pygo.GoBoard import GoBoard, CORNER_DETECTION_ALG
 from pygo.utils.plot import Plot
 from pygo.utils.debug import Timing
 from pygo.Game import Game
 from pygo.InputDevice import InputDevice
 from pygo.Signals import *
+import pandas as pd
 
 #logging.debug = 5
 #logging.addLevelName(logging.debug, "debug")
@@ -22,9 +25,9 @@ from pygo.Signals import *
 
 
 class PyGO(Timing):
-    def __init__(self):
+    def __init__(self, args):
         Timing.__init__(self)
-        self.input_stream = InputDevice()
+        self.input_stream = InputDevice(file=args.video)
 
         self.img_cam = self.input_stream.read()
         self.img_overlay = self.img_cam
@@ -32,15 +35,16 @@ class PyGO(Timing):
         self.img_virtual = self.img_cam
 
         self.History = History()
-        self.Board = GoBoard(self.input_stream.getCalibration())
+        self.Board = GoBoard(self.input_stream.getCalibration(), corner_detection_alg=CORNER_DETECTION_ALG.CPD)
         self.Plot = Plot()
         self.Game = Game()
-        self.PatchClassifier = CircleClassifier(self.Board, 19)
+        self.PatchClassifier = EnsembleClassifier(self.Board, 19)
         self.Motiondetection = MotionDetectionMOG2(self.img_cam, classifier=self.PatchClassifier)
         self.BoardTracker = BoardTracker()
 
         self.kf_thresh = 3
-
+        self.output = []
+        
         self.msg = ''
         self.Katrain = None
         self.input_is_frozen = False
@@ -95,7 +99,7 @@ class PyGO(Timing):
     def startNewGame(self, size=19) -> None:
         #unfreeze to allow reading of new frame
 
-        self.Game.startNewGame(19)
+        self.Game.startNewGame(size)
         self.img_cam = self.input_stream.read_ignore_lock()
         if not self.Board.hasEstimate:
             self.Board.calib(self.img_cam)
@@ -154,7 +158,7 @@ class PyGO(Timing):
 
                     
                     if self.PatchClassifier.hasWeights:
-                        if self.BoardTracker.update(self.Board.track_corners(self.img_cam)):
+                        if not PyGOSettings['StaticBoard'] and self.BoardTracker.update(self.Board.track_corners(self.img_cam)):
                             self.Board.calib(self.img_cam)
                             self.img_cropped =  self.Board.extract(self.img_cam)
 
@@ -177,15 +181,34 @@ class PyGO(Timing):
 
                         self.Game.updateState(val)
                         self.update_history(val)
+                        
+                        if PyGOSettings['Export']:
+                            video = os.path.splitext(os.path.split(self.input_stream.current_port)[1])[0]
+                            filename = f"{self.input_stream.get_time():.2f}.png".format()
+                            filename_debug = f"{self.input_stream.get_time():.2f}_debug.png"
+                            base_path = importlib.resources.files('data').joinpath(video)
+                            out_path       = base_path.joinpath('labels.parquet')
+                            img_path       = base_path.joinpath(filename)
+                            img_path_debug = base_path.joinpath(filename_debug)
+                            os.makedirs(base_path, exist_ok=True)
+                            cv2.imwrite(img_path, self.img_cam)
+                            cv2.imwrite(img_path_debug, self.img_overlay)
+                            self.output.append({
+                                "filename": filename,
+                                "board_size": self.Game.board_size,
+                                "labels": self.Game.getCurrentState().reshape(-1)
+                            })
+                            df  = pd.DataFrame(data=self.output)
+                            df.to_parquet(out_path, compression='gzip')
 
-                        if self.input_stream.is_video:
+                        if self.input_stream.is_video and PyGOSettings['Backtrack']:
                             last_t, kf_count = self.History.how_many_kf_since_last_update()
                             logging.warning("{} Keyframes added without an update to the game state".format(kf_count))
                             if kf_count > 1:
                                 self.backtrack(from_=last_t)
 
-                        #if self.Katrain is not None:
-                        #    self.Katrain.send(self.msg)
+                        if self.Katrain is not None:
+                            self.Katrain.send(self.msg)
                 else:
                     #overlay old state during motion
                     self.img_overlay = self.Plot.plot_overlay(self.Game.state,
@@ -230,8 +253,8 @@ class PyGO(Timing):
             #current_hidden = len(np.argwhere(self.History.get_kf(last_kf).state != C2N('E')))
             if self.Board.hasEstimate:
                 img_cropped =  self.Board.extract(img)
-                cv2.imshow("backtrack", img_cropped)
-                cv2.waitKey(1)
+                #cv2.imshow("backtrack", img_cropped)
+                #cv2.waitKey(1)
                 #hidden_cnt = self.Motiondetection.getHiddenIntersectionCount(img_cropped)
                 #logging.debug("Hidden intersections: {}".format(hidden_cnt))
 

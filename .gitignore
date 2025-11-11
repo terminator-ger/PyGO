@@ -3,6 +3,9 @@
 *.sgf
 *.zip
 *.png
+*.log
+*.ipynb
+**.egg-info
 **/__pycache__/
 build
 build/*
@@ -20,3 +23,6 @@ pygo/pygo_profile.py
 pygo/segment.py
 pygo/train.py
 pygo/video_analyze.py
+notebooks
+data
+export

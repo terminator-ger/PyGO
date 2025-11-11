@@ -114,6 +114,9 @@ class VideoFrameCounterUpdated(Signals):
 class InputStreamSeek(Signals):
     pass
 
+class InputStreamSeek90(Signals):
+    pass
+
 class InputBackward(Signals):
     pass
 

@@ -10,7 +10,7 @@ from pygo.CameraCalib import CameraCalib
 class InputDevice:
     cam : Optional[cv2.VideoCapture] = None
     camera_calib : Optional[CameraCalib] = None
-    limit_resolution : Optional[Tuple[int,int]] = (480,640)
+    limit_resolution : Optional[Tuple[int,int]] = (720,1080) #(480, 640) # height, width
     scale_factor = 1
     dx = 0
     dy = 0
@@ -24,10 +24,12 @@ class InputDevice:
     current = 0
     default_port = 0
     default = 0
+    file = None
 
     def __init__(self, default = None, file: str = None):
         self.default = default
         if file is not None:
+            self.file = file
             self.set_input_file_stream(file)
         else:
             self.__update_ports()
@@ -37,6 +39,7 @@ class InputDevice:
         CoreSignals().subscribe(GamePause, self.pause_stream)
         CoreSignals().subscribe(GameRun, self.unpause_stream)
         CoreSignals().subscribe(InputStreamSeek, self.set_pos)
+        CoreSignals().subscribe(InputStreamSeek90, self.set_pos_90)
 
         CoreSignals().subscribe(InputForward, self._forward)
         CoreSignals().subscribe(InputForward10, self._forward10)
@@ -109,7 +112,14 @@ class InputDevice:
         '''
         self._set_pos(args[0])
 
-    
+    def set_pos_90(self, args) -> None:
+        '''
+            set the time in floating second format
+        '''
+        t = (self.get_length() / self.fps) * 0.9
+        self._set_pos(t)
+
+   
     def _set_pos(self, time: int) -> None:
         frame = int(time * self.fps)
         logging.info("Video set to {}".format(frame/self.fps))

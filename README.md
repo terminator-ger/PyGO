@@ -27,7 +27,9 @@ python setup.py install
 ```python
 python pygo.py 
 ```
-
+## Attribution
+Icons are from the media-control-6 package made by vectaicon taken from flaticon <br>
+https://www.flaticon.com/packs/media-control-6
 
 ## Known Limitations
 - [x]  ~~Can not handle a moved board once position is detected~~

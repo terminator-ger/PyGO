@@ -62,12 +62,12 @@ class TimeSlider(tk.Frame):
         self.navigation_buttons.grid(column=0, row=3)
 
 
-        self.img_fb     = Image.open("img/rewind2.png")
-        self.img_fb10   = Image.open('img/rewind.png')
+        self.img_fb10   = Image.open("img/rewind2.png")
+        self.img_fb     = Image.open('img/rewind.png')
         self.img_pr     = Image.open('img/play-red.png')
         self.img_p      = Image.open('img/play-button.png')
-        self.img_fw     = Image.open('img/fast-forward2.png')
-        self.img_fw10   = Image.open('img/fast-forward.png')
+        self.img_fw10   = Image.open('img/fast-forward2.png')
+        self.img_fw     = Image.open('img/next.png')
         self.img_pause  = Image.open('img/pause.png')
 
         self.img_fb      = self.img_fb.resize((32,32), Image.LANCZOS) 

@@ -2,12 +2,17 @@ from argparse import ArgumentError
 import cv2
 import logging
 import numpy as np
-
+import sklearn
 from enum import Enum, auto
 
-from lu_vp_detect import VPDetection, LS_ALG
+from pycpd import AffineRegistration
+try:
+    from lu_vp_detect import VPDetection, LS_ALG
+    VP_MODULE = True
+except ImportError:
+    VP_MODULE = False
 from skimage import transform
-
+from scipy.signal import find_peaks
 from scipy.spatial.distance import cdist
 from nptyping import NDArray
 from typing import Optional, Tuple, List
@@ -45,7 +50,7 @@ class GoBoard(DebugInfoProvider, Timing):
         self.corner_detection_alg = corner_detection_alg
         self.camera_calibration = camera_calibration
         self.vp = None
-        if self.camera_calibration is not None:
+        if self.camera_calibration is not None and VP_MODULE:
             self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
                               principal_point=self.camera_calibration.get_center(), 
                               length_thresh=50,
@@ -87,7 +92,11 @@ class GoBoard(DebugInfoProvider, Timing):
         self.calib(img)
 
     def camera_geometry_has_changed(self, *args) -> None:
-        if self.camera_calibration is not None:
+        if not VP_MODULE:
+            logging.warning("Vanishing Point module not available -> vanishing point detection disabled")
+        elif self.camera_calibration is None:
+            logging.warning("No camera calibration provided -> vanishing point detection disabled")
+        else:
             self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
                               principal_point=self.camera_calibration.get_center(), 
                               length_thresh=50,
@@ -95,7 +104,11 @@ class GoBoard(DebugInfoProvider, Timing):
 
 
     def reset(self, *args) -> None:
-        if self.camera_calibration is not None:
+        if not VP_MODULE:
+            logging.warning("Vanishing Point module not available -> vanishing point detection disabled")
+        elif self.camera_calibration is None:
+            logging.warning("No camera calibration provided -> vanishing point detection disabled")
+        else:
             self.vp = VPDetection(focal_length=self.camera_calibration.get_focal(), 
                               principal_point=self.camera_calibration.get_center(), 
                               length_thresh=50,
@@ -294,6 +307,7 @@ class GoBoard(DebugInfoProvider, Timing):
             Updates all relevant data used for transformation of image
             and the grid coordinates used during further processing
         '''
+        print('Updating grid')
         self.grid = get_ref_coords(img.shape, self.border_size)
         self.img_limits = (img.shape[1],img.shape[0])
 
@@ -398,6 +412,7 @@ class GoBoard(DebugInfoProvider, Timing):
     def track_corners(self, img: B3CImage) -> NDArray:
         # for fast binarization we use a preset threshold, this can fail on extreme 
         # illuminations
+        #if self.corner_detection_alg == CORNER_DETECTION_ALG.WITH_VP 
         corners = self.detect_board_corners_fast(img=img)
         return corners
 
@@ -426,7 +441,8 @@ class GoBoard(DebugInfoProvider, Timing):
         '''
         img_c = img
         img = toCMYKImage(img)[:,:,3]
-
+        logging.info("Detecting Go-Board...")
+        logging.info('Using corner detection algorithm: {}'.format(self.corner_detection_alg.name))
         if self.corner_detection_alg == CORNER_DETECTION_ALG.WITH_VP:
             try:
                 # assumption most lines in the image are from the go board 
@@ -457,6 +473,107 @@ class GoBoard(DebugInfoProvider, Timing):
         UISignals.emit(UIOnBoardDetected, self.extract(img) , corners, self.H)
         CoreSignals.emit(OnBoardGridSizeKnown, self.go_board_shifted)
 
+    def detect_board_cpd(self, img: B3CImage) -> NDArray:
+        lsd = cv2.createLineSegmentDetector()
+        img_bw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        lines = lsd.detect(img_bw)[0].squeeze()
+        points = []
+        for line in lines:
+            points.append(np.array([line[0], line[1]]))
+            points.append(np.array([line[2], line[2]]))
+
+        points = np.asarray(points) 
+        
+        orientation = []
+        #find two major orientations
+        for line in lines:
+            orientation.append(np.arctan2(abs(line[3]-line[1]), abs(line[2]-line[0]))*180/np.pi)
+
+        lines_v = []
+        for o,l in zip(orientation, lines):
+            if o < 5:
+                lines_v.append(l)
+
+        orientation = []
+        #find two major orientations
+        for line in lines:
+            orientation.append(np.arctan2(abs(line[3]-line[1]), abs(line[2]-line[0]))*180/np.pi)
+
+        lines_h = []
+        for o,l in zip(orientation, lines):
+            if o >85 and o<95:
+                lines_h.append(l)
+                
+        new_lines_v = [self.make_linesegment_longer(line) for line in lines_v]
+        new_lines_h = [self.make_linesegment_longer(line) for line in lines_h]
+        intersections = []
+        for lv in new_lines_v:
+            for lh in new_lines_h:
+                intersections.append(self.get_line_intersection(lv, lh))
+
+        intersections = [x for x in intersections if x is not None]
+        km = sklearn.cluster.KMeans(n_clusters=19*19)
+        km.fit(intersections)
+        intersections = km.cluster_centers_
+        w,h = img_bw.shape[1], img_bw.shape[0]
+        x_min = min([pt[0] for pt in intersections])
+        x_max = max([pt[0] for pt in intersections])
+        y_min = min([pt[1] for pt in intersections])
+        y_max = max([pt[1] for pt in intersections])
+        len_x = x_max - x_min
+        len_y = y_max - y_min
+
+        board_ref = []
+        for i in range(19):
+            for j in range(19):
+                board_ref.append((x_min + i*(len_x/19), y_min + j*(len_y/19)))
+        board_ref = np.asarray(board_ref)
+        src = np.asarray(intersections)
+        noise = 1-(19*19)/len(src)
+        reg = AffineRegistration(X=src, Y=board_ref)
+        pt, params = reg.register()
+        
+        #corners__.append(go_board_shifted.reshape(19,19,2)[0,0])
+        #corners__.append(go_board_shifted.reshape(19,19,2)[0,18])
+        #corners__.append(go_board_shifted.reshape(19,19,2)[18,18])
+        #corners__.append(go_board_shifted.reshape(19,19,2)[18,0])
+
+
+        corners = pt[np.array([18,0, 18*19, 18*19+18])]
+        print(corners)
+        if corners is not None:
+            self.update_grid(img_bw, corners)
+            if self.check_board_alignment(img_bw):
+                # stop search when the have found a good solution
+                logging.info("Board position found")
+                self.hasEstimate=True
+
+        return corners
+   
+
+    def make_linesegment_longer(self, line):
+        orientation = np.arctan2(line[3] - line[1], line[2]-line[0])
+        length = np.sqrt((line[3]-line[1])**2 + (line[2]-line[0])**2)
+        f = 0.08
+        c = np.cos(orientation) * f * length
+        s = np.sin(orientation) * f * length
+        return [line[0] - c , line[1] - s, line[2] + c, line[3] + s]
+    
+    def get_line_intersection(self, line_a, line_b):
+        p0_x, p0_y, p1_x, p1_y = line_a
+        p2_x, p2_y, p3_x, p3_y = line_b
+
+        s1_x = p1_x - p0_x;     s1_y = p1_y - p0_y
+        s2_x = p3_x - p2_x;     s2_y = p3_y - p2_y
+
+        s = (-s1_y * (p0_x - p2_x) + s1_x * (p0_y - p2_y)) / (-s2_x * s1_y + s1_x * s2_y)
+        t = ( s2_x * (p0_y - p2_y) - s2_y * (p0_x - p2_x)) / (-s2_x * s1_y + s1_x * s2_y)
+
+        if (s >= 0 and s <= 1 and t >= 0 and t <= 1):
+            return p0_x + (t * s1_x), p0_y + (t * s1_y)
+
+        return None
+            
 
     def check_board_alignment(self, img:Image) -> bool:
         '''
@@ -474,15 +591,44 @@ class GoBoard(DebugInfoProvider, Timing):
                                 0, \
                                 255, \
                                 cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        def norm(x):
+            return (x -x.min()) / (x.max() - x.min()) 
+             
+        def feat(sum):
+            '''
+            return the distances between the peaks
+            '''
+            x = (sum).astype(int)
+            x_neg = -1 * (sum).astype(int)
+            x = norm(x)
+            x_neg = norm(x_neg)
+            peaks_x, _     = find_peaks(x,     height=0.5) 
+            peaks_x_neg, _ = find_peaks(x_neg, height=0.5)
+            return np.diff(peaks_x), np.diff(peaks_x_neg)
+ 
+        sum_x = np.sum(bw,0).astype(int)
+        sum_y = np.sum(bw,1).astype(int)
+        peaks_x, peaks_x_neg = feat(sum_x)
+        peaks_y, peaks_y_neg = feat(sum_y)
+         
+        if np.std(peaks_x) < 1.2 and np.std(peaks_y) < 1.2:
+            return True
+        if np.std(peaks_x_neg) < 1.2 and np.std(peaks_y_neg) < 1.2:
+            return True
         
-        sum_x = np.sum(bw,0)
-        sum_y = np.sum(bw,1)
-
+        return False
+        
+        
         #only split by 17 as we removed the border fields
         px = np.array_split(sum_x, 17)
         py = np.array_split(sum_y, 17)
         idx_x = [np.argmax(x) for x in px]
         idx_y = [np.argmax(x) for x in py]
+
+        idx_x_neg = [np.argmin(x) for x in px]
+        idx_y_neg = [np.argmin(x) for x in py]
+
+        
 
 
         if np.std(idx_x) > 1.2 or np.std(idx_y) > 1.2:

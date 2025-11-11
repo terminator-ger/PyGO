@@ -2,17 +2,26 @@ import cv2
 import pdb
 import logging
 import numpy as np
-
+import PIL
 from typing import Optional, List, Dict, Tuple
 from enum import Enum
 
 from pygo.utils.misc import cv2Input, flattenList
 from pygo.utils.typing import Image
+import tkinter as tk
+from tkinter import *
+from PIL import ImageTk, Image
 
 class DebugInfoProvider:
+    root = None
     def __init__(self) -> None:
         self.available_debug_info : Dict[str, bool] = {}
         self.debugkeys : Optional[Enum] = None
+        self.windows = {}
+        
+    @staticmethod
+    def setTKRoot(tkroot):
+        DebugInfoProvider.root = tkroot
 
     def getAvailableDebugOptions(self) -> Optional[List[str]]:
         return self.available_debug_info.keys()
@@ -26,16 +35,43 @@ class DebugInfoProvider:
     def debugStatus(self, key: str) -> bool:
         return self.available_debug_info[key.name]
 
-    def showDebug(self, key: str, img: Image) -> None:
-        if self.available_debug_info[key.name]:
-            cv2.imshow(key.name, img)
-            cv2.waitKey(1)
-        else:
-            try:
-                cv2.destroyWindow(key.name)
-            except Exception:
-                pass
+    def showDebug(self, key: Enum, img):
+        k = key.name
 
+        # If debug disabled → close & remove window
+        if not self.available_debug_info.get(k, False):
+            if k in self.windows:
+                self.windows[k].destroy()
+                del self.windows[k]
+            return
+
+        # Create window once
+        if k not in self.windows:
+            win = tk.Toplevel(DebugInfoProvider.root)
+            win.title(k)
+            self.windows[k] = {
+                "window": win,
+                "label": None,
+                "image_ref": None
+            }
+
+        win = self.windows[k]["window"]
+
+        # Convert image BGR → RGB → Tk Image
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        tk_img = ImageTk.PhotoImage(Image.fromarray(img))
+
+        # Keep reference so GC doesn't delete it
+        self.windows[k]["image_ref"] = tk_img
+
+        # Create label once
+        if self.windows[k]["label"] is None:
+            lbl = tk.Label(win, image=tk_img)
+            lbl.pack()  # pack only once
+            self.windows[k]["label"] = lbl
+        else:
+            # Update existing label image
+            self.windows[k]["label"].configure(image=tk_img)
 
 
 

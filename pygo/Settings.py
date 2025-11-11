@@ -15,10 +15,15 @@ PyGOSettings = {
     # Motion Detection 
     'MotionDetectionBoard' : 0.02,
     'MotionDetectionBorder' : 0.001,
+    
+    # Board Detection
+    'StaticBoard': True,
+    'Export': True,
 
     # Game
     'AllowUndo': False,
-    'MoveValidation': MoveValidationAlg.TWO_MOVES
+    'Backtrack': False,
+    'MoveValidation': MoveValidationAlg.NONE
 }
 
 
