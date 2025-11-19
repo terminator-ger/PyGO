@@ -181,3 +181,12 @@ class UIGameReset(Signals):
 
 class UIVideoFrameCounterUpdated(Signals):
     pass
+
+class UIShowVideoUI(Signals):
+    pass
+
+class UIHideVideoUI(Signals):
+    pass
+
+class NewInputFile(Signals):
+    pass

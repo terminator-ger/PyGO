@@ -4,13 +4,20 @@ import logging
 import numpy as np
 import PIL
 from typing import Optional, List, Dict, Tuple
-from enum import Enum
+from enum import Enum, auto
 
 from pygo.utils.misc import cv2Input, flattenList
 from pygo.utils.typing import Image
 import tkinter as tk
 from tkinter import *
 from PIL import ImageTk, Image
+
+class debugkeys(Enum):
+    Detected_Lines = auto()
+    Detected_Grid = auto()
+    Affine_Registration = auto()
+    Board_Outline = auto()
+
 
 class DebugInfoProvider:
     root = None

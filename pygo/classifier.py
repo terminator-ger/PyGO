@@ -1,18 +1,13 @@
 import cv2
 import warnings
-from matplotlib import pyplot as plt
-import torch as th
 import logging
 import numpy as np
-
 
 from enum import Enum, auto
 from typing import Tuple, List
 from dataclasses import dataclass
 from scipy.ndimage import label
-from scipy.signal import convolve2d
 
-from joblib import load, dump
 from skimage.filters import sobel
 from skimage.draw import circle_perimeter
 from skimage.transform import hough_circle, hough_circle_peaks
@@ -25,33 +20,16 @@ from pygo.utils.debug import DebugInfoProvider
 from pygo.utils.plot import Plot
 from pygo.utils.typing import B1CImage, B3CImage, GoBoardClassification
 from pygo.GoBoard import GoBoard
-from pygo.GoNet import GoNet
+from pygo.classifiers.BaseGoClassifier import Classifier
+from pygo.classifiers.CnnClassifier import CnnClassifier
+from pygo.classifiers.HOGSVMClassifier import HOGSVMClassifier
 
-from pygo.utils.data import load_and_augment_training_data, weights_path
-from skimage.feature import hog
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import classification_report, f1_score
-from sklearn.svm import SVC
-import torch.nn.functional as F
+from sklearn.ensemble import VotingClassifier
 
 warnings.filterwarnings('always') 
 def toNP(x):
     return x.detach().cpu().numpy()
 
-
-class Classifier:
-    def predict(self, patches):
-        raise NotImplementedError()
-
-    def train(self, patches):
-        raise NotImplementedError()
-
-    def load(self):
-        raise NotImplementedError()
-
-    def store(self):
-        raise NotImplementedError()
 
 
 class debugkeys(Enum):
@@ -86,8 +64,14 @@ class EnsembleClassifier(Classifier, DebugInfoProvider, Timing):
         Timing.__init__(self)
         DebugInfoProvider.__init__(self)
 
-        self.classifier = GoClassifier("weights.pt")
-        self.classifier_2 = GoClassifier("weights_2.pt")
+        self.classifier = CnnClassifier("weights.pt")
+        self.classifier_2 = CnnClassifier("weights_2.pt")
+        self.classifier_3 = HOGSVMClassifier()
+        self.ensemble = VotingClassifier(estimators=[
+                            ('cnn0', self.classifier), 
+                            ('cnn1', self.classifier_2), 
+                            ('svm', self.classifier_3)], voting='hard')
+
         self.size = size 
         self.hasWeights = True
         self.BOARD=BOARD
@@ -126,20 +110,24 @@ class EnsembleClassifier(Classifier, DebugInfoProvider, Timing):
   
 
     def predict(self, img: B3CImage) -> GoBoardClassification:
-        cnn_pred          = self.classifier.predict_prob(self.image_to_patches(img))
-        cnn2_pred         = self.classifier_2.predict_prob(self.image_to_patches(img))
-        detections_cnn = []
-        detections_cnn2 = []
+        patches = self.image_to_patches(img)
+        val = self.ensemble.predict(patches)
+        #cnn_pred          = self.classifier.predict_prob(self.image_to_patches(img))
+        #cnn2_pred         = self.classifier_2.predict_prob(self.image_to_patches(img))
+        #hog_pred          = self.classifier_3.predict_prob(self.image_to_patches(img))
+        #detections_cnn = []
+        #detections_cnn2 = []
+        #detections_svm = []
                
        
-        val = cnn_pred + cnn2_pred
+        #val = cnn_pred + cnn2_pred
         val_tmp = np.argmax(val, axis=-1)
         val = np.zeros_like(val_tmp)
         # remap classes
         val[val_tmp==0] = 2
         val[val_tmp==1] = 0
         val[val_tmp==2] = 1
-        
+        '''
         cnn_pred_cls = np.argmax(cnn_pred, -1).reshape(-1)
         cnn2_pred_cls = np.argmax(cnn2_pred, -1).reshape(-1)
         for idx, (x,y) in enumerate(self.BOARD.go_board_shifted.astype(int).reshape(-1,2)):
@@ -147,9 +135,12 @@ class EnsembleClassifier(Classifier, DebugInfoProvider, Timing):
                 detections_cnn.append([x,y])
             if cnn2_pred_cls[idx]:
                 detections_cnn2.append([x,y])
+            if hog_pred[idx]:
+                detections_svm.append([x,y])
 
         detections_cnn = np.array(detections_cnn)
         detections_cnn2 = np.array(detections_cnn2)
+        detections_svm = np.array(detections_svm)
  
         cell_w = (np.mean(np.diff(self.BOARD.go_board_shifted.reshape(19,19,2)[:,:,0], axis=0))//2).astype(int)
 
@@ -169,6 +160,7 @@ class EnsembleClassifier(Classifier, DebugInfoProvider, Timing):
         for coord in self.BOARD.go_board_shifted.astype(int):
             isin_cnn    = np.all(np.equal(coord, detections_cnn),axis=1).any().astype(int) if len(detections_cnn)   > 0 else 0
             isin_cnn2   = np.all(np.equal(coord, detections_cnn2),axis=1).any().astype(int) if len(detections_cnn)   > 0 else 0
+            isin_svm    = np.all(np.equal(coord, detections_svm),axis=1).any().astype(int) if len(detections_cnn)   > 0 else 0
             
 
             cv2.putText(img=img_detect4, 
@@ -191,21 +183,21 @@ class EnsembleClassifier(Classifier, DebugInfoProvider, Timing):
 
 
 
-            p_stone = isin_cnn * 0.5 + isin_cnn2 * 0.5
+            #p_stone = isin_cnn * 0.33 + isin_cnn2 * 0.33 + isin_svm * 0.33
 
-            if p_stone > 0.5:
-                cv2.circle(markers, coord, cell_w+3, 0, -1)
-                cv2.circle(markers, coord, 2, id, 2)
+            #if p_stone > 0.5:
+            #    cv2.circle(markers, coord, cell_w+3, 0, -1)
+            #    cv2.circle(markers, coord, 2, id, 2)
 
-                cv2.circle(mask, coord, cell_w, 255, -1)
-                crl = np.array([coord[0], coord[1], cell_w])
-                detected_circles.append([crl])
-                id += 1
+            #    cv2.circle(mask, coord, cell_w, 255, -1)
+            #    crl = np.array([coord[0], coord[1], cell_w])
+            #    detected_circles.append([crl])
+            #    id += 1
 
         self.showDebug(debugkeys.DETECT2, img_detect2)
         self.showDebug(debugkeys.DETECT4, img_detect4)
         self.showDebug(debugkeys.MASK, mask)
-
+        ''' 
 
         return val
 
@@ -873,163 +865,5 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
         detections = np.array(detections)
         return val, detections
 
-class HOGSVMClassifier(Classifier):
-    def __init__(self):
-        self.hasWeights = False
-        self.clf = None
-        self.load()
-
-    def predict_prob(self, patches):
-        HOG = np.asarray([self.extract_feature_image(patch) for patch in patches])
-        result = self.clf.predict_proba(HOG)
-        result = result.reshape(19,19, 3).T.reshape(-1, 3)
-        return result
 
 
-    def predict(self, patches):
-        HOG = np.asarray([self.extract_feature_image(patch) for patch in patches])
-        result = self.clf.predict(HOG)
-        result = result.reshape(19,19).T.reshape(-1)
-        return result
-
-
-    def extract_feature_image(self, patches):
-        patches = cv2.resize(patches, (32,32))
-        fd = hog(patches, orientations=8, pixels_per_cell=(8,8),
-                    cells_per_block=(1,1), visualize=False, channel_axis=-1)
-        #cv2.imshow('img', img) 
-        #cv2.waitKey(400)
-
-        return fd
-
-
-    def train(self):
-        X_train, y_train, X_test, y_test = load_and_augment_training_data(self.extract_feature_image)
-
-        self.clf = make_pipeline(StandardScaler(), SVC(gamma='auto', probability=True))
-       
-        self.clf.fit(X_train, y_train)
-
-        y_pred = self.clf.predict(X_test)
-
-        print(classification_report(y_test, y_pred))
-
-        self.hasWeights = True
-        self.store()
-
-
-
-
-    def load(self):
-        weights_file = weights_path("weights", "hogsvm.joblib")
-        if os.path.exists(weights_file):
-            self.clf = load(weights_file)
-            self.hasWeights = True
-        else:
-            print('Failed to Restore HOGSVG Classification Alg')
-            self.hasWeights = False
-
-    def store(self):
-        weights_file = weights_path("weights", "hogsvm.joblib")
-        dump(self.clf , weights_file)
-
-class GoClassifier(Classifier):
-    def __init__(self, weights_file) -> None:
-        self.hasWeights = False
-        self.num_classes = 3
-        self.model = GoNet(num_classes=self.num_classes)
-        self.weights_file = weights_file
-        self.model.eval()
-        self.load()
-
-    def predict(self, patches):
-        x = th.from_numpy(np.array(patches).astype(np.float32)).permute(0,3,1,2)
-        if th.max(x) > 1.0:
-            x = x / 255
-        lbl = self.model(x)
-        lbl = lbl.detach().cpu().numpy()
-        lbl = np.argmax(lbl, axis=1)
-
-        lbl = lbl.reshape(19,19,-1)
-        lbl = np.rot90(np.fliplr(lbl))
-        lbl = lbl.reshape(-1)
-        return lbl
-
-
-    def predict_prob(self, patches):
-        x = th.from_numpy(np.array(patches).astype(np.float32)).permute(0,3,1,2)
-        if th.max(x) > 1.0:
-            x = x / 255
-        lbl = self.model(x)
-        lbl = lbl.detach().cpu().numpy()
-        
-        lbl = lbl.reshape(19, 19, self.num_classes)
-        lbl = np.rot90(np.fliplr(lbl))
-        lbl = lbl.reshape(-1, self.num_classes)
- 
-        return lbl
-
-
-
-    def train(self):
-        self.model = GoNet(num_classes=self.num_classes)
-        X_train, y_train, X_test, y_test = load_and_augment_training_data((lambda x:x))
-       
-        X_train = th.from_numpy(X_train.astype(np.float32))
-        y_train = th.from_numpy(y_train.astype(np.int_))
-        X_test  = th.from_numpy(X_test.astype(np.float32))
-        y_test  = th.from_numpy(y_test.astype(np.int_))
-        # channels to pos 1
-        X_train = X_train.permute(0,3,1,2)
-        X_test  = X_test.permute(0,3,1,2)
-
-        batch_size = X_train.size()[0]
-        opt = th.optim.Adam(self.model.parameters(), lr=0.001, weight_decay=0.005)
-        loss_fn = th.nn.CrossEntropyLoss()
-        print('train')
-        for i in range(40):
-            permutation = np.arange(X_train.size()[0])
-            
-            for j in range(0, X_train.size()[0], batch_size):
-                indices = permutation[j:j+batch_size]
-                batch_x, batch_y = X_train[indices], y_train[indices]
-                y_pred = self.model(batch_x)
-                loss = loss_fn(y_pred, batch_y)
-                loss.backward()
-                opt.step()
-                opt.zero_grad()
-
-            with th.no_grad():
-                y_pred = self.model(X_test)
-                loss_test = loss_fn(y_pred, y_test)
-                y_pred = F.log_softmax(y_pred, -1)
-                y_pred = toNP(y_pred)
-                y_pred = np.argmax(y_pred, axis=1)
-                f1 = f1_score(y_test, y_pred, average='micro')
-                print("Epoch {} : {:0.2f}, {:0.3f}, {:0.3f}".format(i,f1, toNP(loss), toNP(loss_test)))
-
-            if i % 5 == 0:
-                th.save(self.model, 'weights_{}_{}.pt'.format(i, f1))
-                for cls in range(self.num_classes):
-                    plots=101+self.num_classes*10
-                    plt.subplot(plots+cls)
-                    if np.any((y_pred==cls)):
-                        plt.imshow(np.vstack(X_test[y_pred==cls, 0]))
-
-                plt.savefig('{}.png'.format(i), dpi=400)
-
-        print(classification_report(y_test, y_pred))
-        self.hasWeights = True
-
-    def load(self):
-        weights_file = weights_path("weights", self.weights_file)
-        if os.path.exists(weights_file):
-            self.model.load_state_dict(th.load(weights_file, weights_only=True))
-            self.hasWeights = True
-        else:
-            print('Failed to Restore ConvGO Classification Alg')
-            self.hasWeights = False
-
-    def store(self):
-        weights_file = weights_path("weights", self.weights_file)
-        th.save(self.model, weights_file)

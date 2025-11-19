@@ -16,6 +16,7 @@ from tkinter import ttk
 import tkinter.scrolledtext as scrolledtext
 from tkinter import filedialog as fd
 
+from pygo.Settings import PyGOSettings, CORNER_DETECTION_ALG
 from pygo.core import PyGO
 from pygo.utils.typing import B3CImage, Image, NetMove
 from pygo.utils.debug import DebugInfo, DebugInfoProvider
@@ -33,7 +34,6 @@ class PyGOTk:
         logging.basicConfig()
         logging.getLogger().setLevel(logging.INFO)
 
-
         if pygo is None:
             self.pygo = PyGO()
             self.weOwnControllLooop = True
@@ -42,20 +42,18 @@ class PyGOTk:
             self.weOwnControllLooop = False
 
         self.DebugInfo = DebugInfo([self.pygo.Motiondetection, 
-                                    #self.pygo.BoardMotionDetecion, 
                                     self.pygo.Board, 
                                     self.pygo.Game,
                                     self.pygo.PatchClassifier])
 
-
         self.grid = None
         self.lock_grid = threading.Lock()
-
 
         self.root = tk.Tk()
         self.root.title('PyGO')
         DebugInfoProvider.setTKRoot(self.root)
         
+        self.root.bind("<Configure>", self.on_pane_left_resize)
         
         self.menubar = tk.Menu(self.root, tearoff=0)
 
@@ -81,6 +79,9 @@ class PyGOTk:
         viewmenu.add_radiobutton(label="Overlay",  value=0, variable=self.viewVar)
         viewmenu.add_radiobutton(label="Original", value=1, variable=self.viewVar)
         viewmenu.add_radiobutton(label="Virtual",  value=2, variable=self.viewVar)
+        viewmenu.add_separator()
+        viewmenu.add_command(label="shrink view", command=self.shrink_view)
+        viewmenu.add_command(label="enlarge view", command=self.enlarge_view)
 
 
         self.menubar.add_cascade(label="File", menu=filemenu)
@@ -124,11 +125,12 @@ class PyGOTk:
         self.pane_right.grid(column=1, row=0, sticky=tk.NS)
 
         ''' Image display '''
+        self.go_board_display_left_img_h = None
+        self.go_board_display_left_img_w = None
         self.tkimage = self.__np2tk(self.pygo.img_cam)
         self.go_board_display = tk.Label(self.pane_left, image=self.tkimage)
         self.go_board_display.image = self.tkimage
-        self.go_board_display.grid(column=0, row=0, padx=5, pady=5)
-
+        self.go_board_display.grid(column=0, row=0)
 
         ''' Move Log '''
         self.move_log = scrolledtext.ScrolledText(self.pane_right, undo=True, width=15)
@@ -165,7 +167,8 @@ class PyGOTk:
         self.settings = {'AllowUndo' : tk.BooleanVar(value=False),
                          'MotionDetectionBoard': tk.DoubleVar(value=0.02),
                          'MotionDetectionBorder': tk.DoubleVar(value=0.001),
-                         'StaticBoard': tk.BooleanVar(value=True)
+                         'StaticBoard': tk.BooleanVar(value=PyGOSettings['StaticBoard']),
+                         'CornerDetectionAlg': tk.StringVar(value=PyGOSettings['CornerDetectionAlg']._name_),
         }
 
         self.contextMenu = tk.Menu(self.root, tearoff=False)
@@ -179,6 +182,7 @@ class PyGOTk:
         self.go_board_display.bind("<ButtonPress-1>", self.leftMouseOnGOBoard)
         self.go_board_display.bind("<ButtonPress-3>", self.rightMouseOnGOBoard)
 
+        self.scale = 1.0
         self.moveHistory = []
 
         UISignals.subscribe(UIUpdateLog, self.updateLog)
@@ -186,14 +190,23 @@ class PyGOTk:
         UISignals.subscribe(UIGameReset, self.__clear_log)
         UISignals.subscribe(UIDrawStoneOnTimeline, self.videoAddNewMove)
         UISignals.subscribe(UIVideoFrameCounterUpdated, self.video_frame_counter_udpated)
-
+        UISignals.subscribe(UIShowVideoUI, self.show_video_ui)
+        UISignals.subscribe(UIHideVideoUI, self.hide_video_ui)
+    
+    def shrink_view(self):
+        self.scale -= 0.25
+        self.updateGrid()
+        
+    def enlarge_view(self):
+        self.scale += 0.25
+        self.updateGrid()
+     
     def set_time(self):
         CoreSignals.emit(InputStreamSeek90)
 
     def video_frame_counter_udpated(self, args):
         cnt = args[0]
         self.time_slider.shift_to_time(cnt)
- 
 
     def save_image(self):
         idx = len(os.listdir('./debug'))
@@ -220,8 +233,6 @@ class PyGOTk:
                 else:
                     cv2.imwrite('./data/{}/{}.png'.format(C2N("E"), fstr), P)
 
-
-
     def onDetectHandicap(self):
         CoreSignals.emit(DetectHandicap)
 
@@ -230,8 +241,6 @@ class PyGOTk:
         ts = args[1]
         if ts is not None:
             self.time_slider.draw_stone(ts, colour)
-
-
 
     def __eventCoordsToGameCoords(self, event):
         x, y = event.x, event.y
@@ -253,12 +262,11 @@ class PyGOTk:
         x_board, y_board = np.unravel_index(coord, (19,19))
         return (x_board, y_board)
 
-    def hide_video_ui(self):
+    def hide_video_ui(self, args=None):
         self.time_slider_box.grid_forget()
 
-    def show_video_ui(self):
+    def show_video_ui(self, args=None):
         self.time_slider_box.grid(column=0, row=2)
-
  
     def leftMouseOnGOBoard(self, event):
         if self.pygo.Game.GS != GameState.NOT_STARTED:
@@ -279,7 +287,6 @@ class PyGOTk:
                 self.contextMenu.entryconfig("Black", state="normal")
             self.contextMenu.tk_popup(event.x_root, event.y_root)
 
-
     def addManualWhite(self) -> None:
         c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
         c_y = self.contextMenu.winfo_y() - self.go_board_display.winfo_rooty()
@@ -287,7 +294,6 @@ class PyGOTk:
         self.pygo.Game.setManual(x,y,C2N('W'))
         ts = self.pygo.input_stream.get_time()
         self.time_slider.draw_stone(ts, 'W')
-
 
     def addManualBlack(self) -> None:
         c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
@@ -297,13 +303,11 @@ class PyGOTk:
         ts = self.pygo.input_stream.get_time()
         self.time_slider.draw_stone(ts, 'W')
 
-
     def addManualNone(self) -> None:
         c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
         c_y = self.contextMenu.winfo_y() - self.go_board_display.winfo_rooty()
         x,y = self.__coordsToGameCoords(c_x, c_y)
         self.pygo.Game.setManual(x,y,C2N('E'))
-
 
     def removeManual(self) -> None:
         c_x = self.contextMenu.winfo_x() - self.go_board_display.winfo_rootx()
@@ -311,10 +315,8 @@ class PyGOTk:
         x,y = self.__coordsToGameCoords(c_x, c_y)
         self.pygo.Game.clearManual(x,y)
 
-
     def freeze(self, event=None) -> None:
         self.pygo.freeze()
-
 
     def GameTogglePauseResume(self, event=None) -> None:
         if self.pygo.Game.GS == GameState.RUNNING:
@@ -328,10 +330,10 @@ class PyGOTk:
     def onClearManualAll(self) -> None:
         self.pygo.Game.clearManualAll()
 
-    def game_is_active(self):
+    def gameIsActive(self):
         return self.pygo.Game.GS != GameState.NOT_STARTED
 
-    def game_is_video(self):
+    def gameIsVideo(self):
         return self.pygo.input_stream.is_video
 
     def GamePause(self) -> None:
@@ -341,15 +343,15 @@ class PyGOTk:
         CoreSignals.emit(GameRun)
     
     def GameTreeBack(self) -> None:
-        if self.game_is_active:
+        if self.gameIsActive:
             CoreSignals.emit(GameTreeBack)
-        if self.game_is_video:
+        if self.gameIsVideo:
             CoreSignals.emit(GamePause)
 
     def GameTreeForward(self) -> None:
-        if self.game_is_active:
+        if self.gameIsActive:
             CoreSignals.emit(GameTreeForward)
-        if self.game_is_video:
+        if self.gameIsVideo:
             CoreSignals.emit(GamePause)
     
     def switchState(self, fn, name, state):
@@ -370,36 +372,21 @@ class PyGOTk:
     def setLogLevelWarn(self) -> None:
         logging.getLogger().setLevel(logging.WARN)
 
-
     def onInputDeviceChanged(self, *args):
-        
         dev = args[0]
         if '/dev/video' in dev:
             #opencv only uses the number
             dev_id = int(dev[-1])
-            self.pygo.input_stream.set_input_file_stream(dev_id)
-            CoreSignals.emit(GameReset, 19)
-            self.hide_video_ui()
-            self.go_tree_pause["state"] = "normal"
+            UISignals.emit(NewInputFile, dev_id)
         else:
             self.video_str = fd.askopenfilename(filetypes=[('mp4', '*.mp4'),
             ])
             if self.video_str:
-                self.time_slider.reset()
-                self.show_video_ui()
-                self.pygo.input_stream.set_input_file_stream(self.video_str)
-                self.time_slider.on_update_time(self.pygo.input_stream.get_length())
-                self.onGameNew()
-                self.go_tree_pause["state"] = "disabled"
-
-    def load_video(self, name):
-        self.video_str = name
-        self.show_video_ui()
-        self.pygo.input_stream.set_input_file_stream(self.video_str)
-        self.time_slider.on_update_time(self.pygo.input_stream.get_length())
-        self.onGameNew()
-        self.go_tree_pause["state"] = "disabled"
-
+                UISignals.emit(NewInputFile, self.video_str)
+                
+    def onCornerDetectionAlgChanged(self, *args):
+        PyGOSettings['CornerDetectionAlg'] = CORNER_DETECTION_ALG[self.settings['CornerDetectionAlg'].get()]
+    
 
 
     def onSettings(self):
@@ -467,7 +454,10 @@ class PyGOTk:
         video_ports = self.pygo.input_stream.getWorkingPorts()
         for port in video_ports:
             if port != "Select Video": 
-                self.input_devices.append('/dev/video{}'.format(port))
+                if isinstance(port, int):
+                    self.input_devices.append('/dev/video{}'.format(port))
+                else:
+                    self.input_devices.append('{}'.format(port))
         self.input_devices.append('Select Video')
 
         self.v.set(self.pygo.input_stream.current_port)
@@ -478,8 +468,15 @@ class PyGOTk:
             *self.input_devices,
             command=self.onInputDeviceChanged
         ) 
-        dropdown.grid(column=0, row=6)
+        dropdown.grid(column=0, row=7)
 
+        dropdown_board_detection_alg = tk.OptionMenu(
+            self.settings_window,
+            self.settings['CornerDetectionAlg'],
+            *CORNER_DETECTION_ALG._member_names_,
+        ) 
+        dropdown_board_detection_alg.grid(column=0, row=8)
+        
 
         self.settings_window.protocol("WM_DELETE_WINDOW", self.on_settings_closing)
         CoreSignals.emit(OnSettingsChanged, self.settings)
@@ -561,12 +558,22 @@ class PyGOTk:
 
     def __np2tk(self, img : Image) -> ImageTk.PhotoImage:
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        return ImageTk.PhotoImage(PIL.Image.fromarray(rgb))
+        #w = img.shape[1]
+        #h = img.shape[0]
+        if self.go_board_display_left_img_h is None or self.go_board_display_left_img_w is None:
+            return ImageTk.PhotoImage(PIL.Image.fromarray(rgb))
+        
+        #scale_w = self.go_board_display_left_img_w / w
+        #scale_h = self.go_board_display_left_img_h / h
+        #scale = min(scale_w, scale_h)
+        #rgb_scaled = cv2.resize(rgb, self.go_board_display_left_img_w, self.go_board_display_left_img_h))#, fx=scale, fy=scale)
+        rgb_scaled = cv2.resize(rgb, dsize=None, fx=self.scale, fy=self.scale)
+        return ImageTk.PhotoImage(PIL.Image.fromarray(rgb_scaled))
 
     def updateGrid(self, *args) -> None:
         with self.lock_grid:
-            self.grid = self.pygo.Board.go_board_shifted
-            self.grd_virtual = self.pygo.Board.grd_overlay
+            self.grid = self.pygo.Board.go_board_shifted * self.scale
+            self.grd_virtual = self.pygo.Board.grd_overlay * self.scale
 
 
     def update(self) -> None:
@@ -582,26 +589,22 @@ class PyGOTk:
         elif self.pygo.Game.GS == GameState.PAUSED:
             self.go_tree_pause.configure(text='|>')
         
-        def scale(img: ImageTk.PhotoImage) -> ImageTk.PhotoImage:
-            w = img.width()
-            h = img.height()
-            scale_w = 480 / w 
-            scale_h = 480 / h
-            return img.zoom(scale_w, scale_h)
-
         # switch view
         view = self.viewVar.get()
         if view == 0:
             self.tkimage = self.__np2tk(self.pygo.img_overlay)
         elif view == 1:
             self.tkimage = self.__np2tk(self.pygo.img_cropped)
-            #self.tkimage = scale(self.tkimage)
         elif view == 2:
             self.tkimage = self.__np2tk(self.pygo.img_virtual)
-            #self.tkimage = scale(self.tkimage)
-
+        
         self.go_board_display.configure(image=self.tkimage)
         self.go_board_display.image = self.tkimage
         
         self.root.after(1, self.update)
 
+
+    def on_pane_left_resize(self, event) -> None:
+        if event.widget == event.widget.winfo_toplevel():
+            self.go_board_display_left_img_w = event.width - self.pane_right.winfo_width() - 4
+            self.go_board_display_left_img_h = event.height - self.go_tree_display.winfo_height() - self.time_slider_box.winfo_height() -3

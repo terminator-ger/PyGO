@@ -7,9 +7,10 @@ from pygo.BoardTracker import BoardTracker
 from pygo.Keyframes import History
 import importlib
 
+from pygo.Settings import CORNER_DETECTION_ALG, MoveValidationAlg
 from pygo.classifier import *
 from pygo.Motiondetection import *
-from pygo.GoBoard import GoBoard, CORNER_DETECTION_ALG
+from pygo.GoBoard import GoBoard
 from pygo.utils.plot import Plot
 from pygo.utils.debug import Timing
 from pygo.Game import Game
@@ -27,7 +28,7 @@ import pandas as pd
 class PyGO(Timing):
     def __init__(self, args):
         Timing.__init__(self)
-        self.input_stream = InputDevice(file=args.video)
+        self.input_stream = InputDevice()
 
         self.img_cam = self.input_stream.read()
         self.img_overlay = self.img_cam
@@ -35,7 +36,7 @@ class PyGO(Timing):
         self.img_virtual = self.img_cam
 
         self.History = History()
-        self.Board = GoBoard(self.input_stream.getCalibration(), corner_detection_alg=CORNER_DETECTION_ALG.CPD)
+        self.Board = GoBoard(self.input_stream.getCalibration())
         self.Plot = Plot()
         self.Game = Game()
         self.PatchClassifier = EnsembleClassifier(self.Board, 19)
@@ -65,7 +66,12 @@ class PyGO(Timing):
         logging.info("Settings updated:")
         for k in PyGOSettings.keys():
             if k in new_settings.keys():
-                PyGOSettings[k] = new_settings[k].get()
+                if k == 'CornerDetectionAlg':
+                    PyGOSettings[k] = CORNER_DETECTION_ALG[new_settings[k].get()]
+                elif k == 'MoveValidation':
+                    PyGOSettings[k] = MoveValidationAlg[new_settings[k].get()]
+                else:
+                    PyGOSettings[k] = new_settings[k].get()
             logging.info("{} : {}".format(k, PyGOSettings[k]))
 
 

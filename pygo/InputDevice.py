@@ -31,9 +31,8 @@ class InputDevice:
         if file is not None:
             self.file = file
             self.set_input_file_stream(file)
-        else:
-            self.__update_ports()
-
+        
+        self.__update_ports()
         self.__auto_calibrate()
 
         CoreSignals().subscribe(GamePause, self.pause_stream)
@@ -131,6 +130,7 @@ class InputDevice:
     def set_input_file_stream(self, file : str = None) -> None:
         if self.cam is not None:
             self.cam.release()
+        self.default = file
         self.cam = cv2.VideoCapture(file)
         self.current_port = file
         self.fps = self.cam.get(cv2.CAP_PROP_FPS)

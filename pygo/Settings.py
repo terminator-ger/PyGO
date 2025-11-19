@@ -3,12 +3,16 @@ from enum import Enum, auto
 
 from pygo.Signals import CoreSignals, OnSettingsChanged
 
-
 class MoveValidationAlg(Enum):
     NONE = auto()
     ONE_MOVE = auto()
     TWO_MOVES = auto()
     MULTI_MOVES = auto()
+
+class CORNER_DETECTION_ALG(Enum):
+    WITH_VP = auto()
+    FAST = auto()
+    CPD = auto()
 
 
 PyGOSettings = {
@@ -19,11 +23,12 @@ PyGOSettings = {
     # Board Detection
     'StaticBoard': True,
     'Export': True,
+    'CornerDetectionAlg': CORNER_DETECTION_ALG.CPD,
 
     # Game
     'AllowUndo': False,
     'Backtrack': False,
-    'MoveValidation': MoveValidationAlg.NONE
+    'MoveValidation': MoveValidationAlg.TWO_MOVES
 }
 
 

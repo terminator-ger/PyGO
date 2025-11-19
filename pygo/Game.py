@@ -280,8 +280,6 @@ class Game(DebugInfoProvider, Timing):
 
         mill_x, mill_y = pygo_to_sgfmill_coord_sys((x,y))
 
-        #import pdb
-        #pdb.set_trace()
         self.game_tree.get_last_node().set_move(c_str.lower(),(mill_x, mill_y))
         self.game_tree.extend_main_sequence()
 
@@ -434,7 +432,7 @@ class Game(DebugInfoProvider, Timing):
         Y = idx[:,1]
         isInTree = []
         notInTree = []
-        for i in range(len(X)):
+        for i, (x,y) in enumerate(zip(X,Y)):
             x = X[i]
             y = Y[i]
             c = state[x,y]
