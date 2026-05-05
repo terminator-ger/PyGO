@@ -1,6 +1,5 @@
 import os
 import cv2
-import pdb
 import numpy as np
 import threading
 import PIL
@@ -185,6 +184,8 @@ class PyGOTk:
         self.scale = 1.0
         self.moveHistory = []
 
+
+    def connect_signals(self):
         UISignals.subscribe(UIUpdateLog, self.updateLog)
         UISignals.subscribe(UIOnBoardDetected, self.updateGrid)
         UISignals.subscribe(UIGameReset, self.__clear_log)
@@ -561,18 +562,11 @@ class PyGOTk:
             self.move_log.see('end')  # move to the end after adding new text
 
 
-
     def __np2tk(self, img : Image) -> ImageTk.PhotoImage:
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        #w = img.shape[1]
-        #h = img.shape[0]
         if self.go_board_display_left_img_h is None or self.go_board_display_left_img_w is None:
             return ImageTk.PhotoImage(PIL.Image.fromarray(rgb))
         
-        #scale_w = self.go_board_display_left_img_w / w
-        #scale_h = self.go_board_display_left_img_h / h
-        #scale = min(scale_w, scale_h)
-        #rgb_scaled = cv2.resize(rgb, self.go_board_display_left_img_w, self.go_board_display_left_img_h))#, fx=scale, fy=scale)
         rgb_scaled = cv2.resize(rgb, dsize=None, fx=self.scale, fy=self.scale)
         return ImageTk.PhotoImage(PIL.Image.fromarray(rgb_scaled))
 

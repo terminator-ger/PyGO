@@ -1,28 +1,26 @@
 import importlib.resources
 from re import I
 import cv2
-import pdb
+import os
 import logging
 from pygo.BoardTracker import BoardTracker
 from pygo.Keyframes import History
 import importlib
 
 from pygo.Settings import CORNER_DETECTION_ALG, MoveValidationAlg, PyGOSettings
-from pygo.CircleClassifier import *
+from pygo.classifiers.CircleClassifier import CircleClassifier
+import pygo.classifiers
 from pygo.Motiondetection import *
 from pygo.GoBoard import GoBoard
+from pygo.classifiers.EnsembleClassifier import EnsembleClassifier
+from pygo.utils.image import N2C, C2N
 from pygo.utils.plot import Plot
 from pygo.utils.debug import Timing
+from pygo.utils.typing import GoBoardClassification
 from pygo.Game import Game
 from pygo.InputDevice import InputDevice
 from pygo.Signals import *
 import pandas as pd
-
-#logging.debug = 5
-#logging.addLevelName(logging.debug, "debug")
-#logging.Logger.debug = lambda inst, msg, *args, **kwargs: inst.log(logging.debug, msg, *args, **kwargs)
-#logging.debug = lambda msg, *args, **kwargs: logging.log(logging.debug, msg, *args, **kwargs)
-
 
 
 class PyGO(Timing):
@@ -121,7 +119,7 @@ class PyGO(Timing):
 
     def loop10x(self) -> None:
         for _ in range(10):
-            img_cam = self.input_stream.read()
+            _ = self.input_stream.read()
         for _ in range(10):
             self.run_once()
             print(self.input_is_frozen)
@@ -245,34 +243,23 @@ class PyGO(Timing):
         to_ = self.input_stream.get_time()
 
         self.input_stream.set_pos((from_,))
-        last_kf = from_
         logging.debug("Backtracking from {} to {}".format(from_, to_))
-        #intermediate_kf = self.bisect(from_, to_)
         intermediate_kf = self.search(from_, to_)
         print(intermediate_kf)
 
-        #while self.input_stream.get_time() <= to_:
         for time_ in intermediate_kf:
             logging.debug('set time to {}'.format(time_))
             # use another state detector to split the 
             self.input_stream.set_pos((time_,))
             img = self.input_stream.read_ignore_lock()
 
-            #current_hidden = len(np.argwhere(self.History.get_kf(last_kf).state != C2N('E')))
             if self.Board.hasEstimate:
                 img_cropped =  self.Board.extract(img)
-                #cv2.imshow("backtrack", img_cropped)
-                #cv2.waitKey(1)
-                #hidden_cnt = self.Motiondetection.getHiddenIntersectionCount(img_cropped)
-                #logging.debug("Hidden intersections: {}".format(hidden_cnt))
 
-                #if current_hidden - hidden_cnt > -2:
                 logging.debug("NEW KF")
                 val = self.PatchClassifier.predict(img_cropped)
-                #old_state = self.Game.state.copy()
                 self.Game.updateStateWithChecks(val)
                 logging.debug(val)
-                #new_state = self.Game.state
 
                 self.img_overlay = self.Plot.plot_overlay(val, 
                                                     self.Board.go_board_shifted, 
@@ -283,14 +270,8 @@ class PyGO(Timing):
                                                     self.Board.border_size)
                 logging.debug('Last Move:')
                 logging.debug("{} {}-{}".format(N2C(self.Game.last_color), self.Game.last_x, self.Game.last_y))
-
-                #if np.sum(new_state - old_state) != 0:
-                    #pdb.set_trace()
-                #last_kf = self.input_stream.get_time()
                 logging.info("Delta Detected - Adding to History")
                 self.update_history(val)
-
-
 
         # restore state and resume
         self.input_stream.set_pos((to_,))
@@ -306,7 +287,6 @@ class PyGO(Timing):
 
     def search(self, from_, to_):
         lower = self._get_hidden_cnt(from_)
-        upper = self._get_hidden_cnt(to_)
         kf = [] 
         for t in np.arange(from_, to_, 0.25):
             # step trough linearly in 0.2 sec steps 

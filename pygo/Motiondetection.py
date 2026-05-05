@@ -6,7 +6,7 @@ from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
 from pygo.utils.image import toByteImage, toColorImage, toGrayImage
 from pygo.utils.typing import Image, B3CImage, Mask
 from pygo.Signals import *
-from pygo.CircleClassifier import CircleClassifier
+from pygo.classifiers.CircleClassifier import CircleClassifier
 
 from enum import Enum, auto
 
@@ -77,12 +77,12 @@ class MotionDetectionMOG2(DebugInfoProvider):
         self.bs = int(min(width, height) * self.f)
 
     def getHiddenIntersectionCount(self, img:B3CImage) -> bool:
+        F = 1.0
         if self.resize:
-            F = 1.0
             img_count = cv2.resize(img, None, fx=F,fy=F)
             img = cv2.resize(img, None, fx=self.f,fy=self.f)
         else:
-            F = 1.0
+            img_count = img
 
         if self.hiddenIntersections is not None:
             hidden_count = self.hiddenIntersections.get_hidden_intersection_count(img_count, scale=F)
@@ -114,33 +114,20 @@ class MotionDetectionMOG2(DebugInfoProvider):
 
     def _hasNoMotion(self, img: B3CImage) -> bool:
         if self.resize:
-            F = 1.0
-            img_count = cv2.resize(img, None, fx=F,fy=F)
             img = cv2.resize(img, None, fx=self.f,fy=self.f)
-        else:
-            F = 1.0
 
-        bmask = self.fgbg_border.apply(img, None, PyGOSettings['MotionDetectionBorder'])
         fgmask = self.fgbg.apply(img, None, PyGOSettings['MotionDetectionBoard'])
-
         fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, self.kernel, iterations=1)
-
-        #bmask = fgmask.copy()
-        bmask = cv2.morphologyEx(bmask, cv2.MORPH_OPEN, self.kernel, iterations=1)
-        bmask[self.bs:-self.bs, self.bs:-self.bs] = 0
         fgmask[:self.bs] = 0
         fgmask[:,:self.bs] = 0
         fgmask[-self.bs:] = 0
         fgmask[:,-self.bs:] = 0
-        #print('BORDER {}'.format(PyGOSettings['MotionDetectionBorder']))
-        #print('board {}'.format(PyGOSettings['MotionDetectionBoard']))
-
-        #cv2.imshow('border', bmask)
-        #cv2.waitKey(1)
-        #cv2.imshow('center', fgmask)
-        #cv2.waitKey(1)
-
-
+        
+        bmask = self.fgbg_border.apply(img, None, PyGOSettings['MotionDetectionBorder'])
+        bmask = cv2.morphologyEx(bmask, cv2.MORPH_OPEN, self.kernel, iterations=1)
+        bmask[self.bs:-self.bs, self.bs:-self.bs] = 0
+       
+        area = 0
         idx = np.argwhere(fgmask > 0)
         if len(idx) > 0:
             x_min = np.min(idx[:,0])
@@ -150,32 +137,25 @@ class MotionDetectionMOG2(DebugInfoProvider):
             dx = x_max-x_min
             dy = y_max-y_min
             area = dx*dy
-        else:
-            area = 0
 
         bmask_disp = cv2.resize(bmask, None, fx=4,fy=4)
         mask_disp = cv2.resize(fgmask, None, fx=4,fy=4)
         mm = np.dstack((bmask_disp, mask_disp, bmask_disp))
         self.showDebug(debugkeys.Motion, mm)
 
-        val = fgmask > 0
-        val = val.sum()
-        bval = bmask > 0
-        bval = bval.sum()
+        val = (fgmask > 0).sum()
+        bval = (bmask > 0).sum()
 
-        if (not self.motion_active and 
-                val > .8*self.tresh and 
-                bval > 0):# and
-                #hidden_count -self.last_hidden_count > 2):
+        if (not self.motion_active and
+                val > .8*self.tresh and
+                bval > 0):
             # hand onto of board
             self.motion_active = True
             self.hist = 0
             return False
 
         if (self.motion_active and bval <=  3 and 
-                area < 3*self.stone_area):# and
-                #(hidden_count - self.last_hidden_count <= 2)):
-            #self.last_hidden_count = hidden_count
+                area < 3*self.stone_area):
             self.motion_active = False
             self.hist = 0
             logging.debug('No Motion')

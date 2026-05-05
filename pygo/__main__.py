@@ -23,8 +23,9 @@ def run_app_threaded(args):
 
     core_thread.join()
 
-#Deprecated
 def run_app_singlecore(**args):
+    ''' for debugging only, for other purposes use run_app_threaded
+    '''
     ui = PyGOTk()
     ui.run()
 

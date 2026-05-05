@@ -25,15 +25,11 @@ from pygo.classifiers.CnnClassifier import CnnClassifier
 from pygo.classifiers.HOGSVMClassifier import HOGSVMClassifier
 from pygo.classifiers.MobilenetV4 import MobilenetV4Classifier
 from pygo.classifiers.Convnext import ConvnextClassifier
-
+from pygo.classifiers.CnnClassifier import CnnClassifier
 
 warnings.filterwarnings('always') 
-def toNP(x):
-    return x.detach().cpu().numpy()
 
-
-
-class CircleClassifierDebugKeys(debugkeys):
+class CircleClassifierDebugKeys(Enum):
     Mask_Black = auto()
     Mask_White = auto()
     Detected_Intensities = auto()
@@ -51,7 +47,6 @@ class CircleClassifierDebugKeys(debugkeys):
     DETECT4 = auto()
 
 
-
 class CircleClassifier(Classifier, DebugInfoProvider, Timing):
     def __init__(self, BOARD:GoBoard, size: int) -> None:
         Classifier.__init__(self)
@@ -60,8 +55,8 @@ class CircleClassifier(Classifier, DebugInfoProvider, Timing):
 
         #self.haar_classifier = HaarClassifier()
         self.hogsvm_classifier = HOGSVMClassifier()
-        self.classifier = GoClassifier("weights.pt")
-        self.classifier_2 = GoClassifier("weights_2.pt")
+        self.classifier = CnnClassifier("weights.pt")
+        self.classifier_2 = CnnClassifier("weights_2.pt")
         self.size = size 
         self.hasWeights = True
         self.BOARD=BOARD

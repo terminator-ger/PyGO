@@ -65,7 +65,7 @@ class History:
             for j in range(len(diff_idx_pred)):
                 x = diff_idx_pred[j][0]
                 y = diff_idx_pred[j][0]
-                if state[x,y] == C2N("E"):#in [C2N('B'), C2N('W')]:
+                if state[x,y] == C2N("E"):
                     cnt_pred += 1
             
             if cnt_pred > 0:
@@ -84,7 +84,6 @@ class History:
             if (diff_state_sum == 0 and cnt_pred > 0) or deviating_state:
                 cnt_state += 1    # one more kf without update has passed
                 cnt_pred  = 0
-
 
             #else we continue to search further back in time
 

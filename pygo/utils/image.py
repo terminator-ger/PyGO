@@ -17,12 +17,12 @@ class Color(Enum):
 
 def N2C(c):
     if c == 0:
-        c_str = 'W' 
+        return 'W'
     elif c == 1:
-        c_str = 'B' 
+        return 'B'
     elif c == 2:
-        c_str = 'E' 
-    return c_str
+        return 'E'
+    raise Exception(f"Unknown Color Code {c}, has to be [0,2] ")
 
 def C2N(c):
     if c == 'W':
@@ -31,6 +31,7 @@ def C2N(c):
         return 1
     elif c == 'E':
         return 2
+    raise Exception(f"Unknown Color Code {c}, has to be W,B,E ")
 
 def toNP(x):
     return x.detach().cpu().numpy()

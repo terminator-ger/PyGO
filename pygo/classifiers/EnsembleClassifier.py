@@ -29,7 +29,7 @@ class CV2PlotSettings:
     thickness : int        = 1
     lineType  : int        = 2
 
-class EnsembleDebugKeys(debugkeys):
+class EnsembleDebugKeys(Enum):
     Mask_Black = auto()
     Mask_White = auto()
     Detected_Intensities = auto()

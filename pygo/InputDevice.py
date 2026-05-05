@@ -11,19 +11,18 @@ class InputDevice:
     cam : Optional[cv2.VideoCapture] = None
     camera_calib : Optional[CameraCalib] = None
     limit_resolution : Optional[Tuple[int,int]] = (720,1080) #(480, 640) # height, width
+   
     scale_factor = 1
-    dx = 0
-    dy = 0
+    fps = 1
+    
+    dx, dy = 0,0
     current_port = None
     __is_paused = False
     last_frame = None
     frames_total = None
     frame_n = None
-    fps = 1
     is_video = False
-    current = 0
-    default_port = 0
-    default = 0
+    current, default_port, default = 0, 0, 0
     file = None
 
     def __init__(self, default = None, file: str = None):
@@ -137,7 +136,7 @@ class InputDevice:
 
         self.frames_total = self.cam.get(cv2.CAP_PROP_FRAME_COUNT)
         if self.frames_total == -1:
-            # no video file
+            # from webcam
             self.frame_n = 0
             self.is_video = False
         else:
@@ -164,24 +163,17 @@ class InputDevice:
             CoreSignals().emit(InputStreamEnded)
             return self.last_frame
         if self.limit_resolution:
-            img_ = cv2.resize(img, dsize=None, 
+            img = cv2.resize(img, dsize=None, 
                             fx = self.scale_factor, 
                             fy = self.scale_factor)
 
             if self.dx > 0 and self.dy > 0:
-                img_ = img_[self.dx//2 : -self.dx//2, self.dy//2: -self.dy//2]
+                img = img[self.dx//2 : -self.dx//2, self.dy//2: -self.dy//2]
             elif self.dx == 0 and self.dy > 0:
-                img_ = img_[:, self.dy//2: -self.dy//2]
+                img = img[:, self.dy//2: -self.dy//2]
             elif self.dy == 0 and self.dx > 0:
-                img_ = img_[self.dx//2: -self.dx//2]
-            img = img_
-            #img = cv2.fastNlMeansDenoising(img, 
-            #                            templateWindowSize=5, 
-            #                            searchWindowSize=7)
-            #kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-            #img = cv2.filter2D(img, -1, kernel)
+                img = img[self.dx//2: -self.dx//2]
             self.last_frame = img
-            # only increment for live videos
 
         return img
 
@@ -191,15 +183,14 @@ class InputDevice:
     def read(self) -> np.ndarray:
         if self.__is_paused:
             return None
-        else:
-            frame = self.__get_next_frame()
-            # notify ui of video progress
-            if self.frames_total == -1:
-                self.frame_n += 1
-            else:
-                UISignals.emit(UIVideoFrameCounterUpdated, self.get_time())
-                CoreSignals.emit(VideoFrameCounterUpdated, self.get_time())
-            return frame
+        
+        frame = self.__get_next_frame()
+        # notify ui of video progress
+        if self.is_video:
+            self.frame_n += 1
+            UISignals.emit(UIVideoFrameCounterUpdated, self.get_time())
+            CoreSignals.emit(VideoFrameCounterUpdated, self.get_time())
+        return frame
         
     def __iter__(self):
         return self

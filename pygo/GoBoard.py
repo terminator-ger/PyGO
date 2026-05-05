@@ -272,7 +272,7 @@ class GoBoard(DebugInfoProvider, Timing):
         return corners_mat
 
 
-    def detect_board_corners_fast(self, img: B3CImage, vp1: Point2D=None, vp2: Point2D=None) -> NDArray:
+    def __detect_board_corners_fast(self, img: B3CImage, vp1: Point2D=None, vp2: Point2D=None) -> NDArray:
         if vp1 is None:
             logging.debug('Running corner detection WITHOUT vanishing point module')
 
@@ -317,7 +317,7 @@ class GoBoard(DebugInfoProvider, Timing):
         self.cell_h = np.mean(np.diff(self.go_board_shifted.reshape(19,19,2)[:,:,1], axis=1))
 
 
-    def detect_board_corners(self, vp1: Point2D, vp2: Point2D, img: B3CImage) -> Optional[NDArray]:
+    def __detect_board_corners(self, vp1: Point2D, vp2: Point2D, img: B3CImage) -> Optional[NDArray]:
         '''
             Returns the corner coordintes of the detected go board as 2d array or None 
             when no detection could be made
@@ -337,16 +337,6 @@ class GoBoard(DebugInfoProvider, Timing):
                     self.hasEstimate=True
                     break
 
-        #if corners is None:
-        #    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
-        #    # loop over the kernels sizes
-        #    for  in range(0):
-        #        cv2.morphologyEx(src=img_bw, dst=img_bw, op=cv2.MORPH_CLOSE, kernel=kernel)
-        #        corners = self.get_corners(vp1, vp2, img_bw)
-        #        #up to threee filter layers
-        #        if corners is not None:
-        #           break
-
         logging.debug('Corners {}'.format(corners))
  
         return corners
@@ -357,9 +347,6 @@ class GoBoard(DebugInfoProvider, Timing):
             Returns a binarized image which should clearly show the boards grid
         '''
         img_gray = toYUVImage(img)[:,:,0]
-        #clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8,8))
-        #img_gray = clahe.apply(img_gray)
-        #img_gray = cv2.equalizeHist(img_gray)
         img_bw = cv2.adaptiveThreshold(img_gray,
                                         255,
                                         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
@@ -403,7 +390,7 @@ class GoBoard(DebugInfoProvider, Timing):
         # for fast binarization we use a preset threshold, this can fail on extreme 
         # illuminations
         #if self.corner_detection_alg == CORNER_DETECTION_ALG.WITH_VP 
-        corners = self.detect_board_corners_fast(img=img)
+        corners = self.__detect_board_corners_fast(img=img)
         return corners
 
 
@@ -440,14 +427,14 @@ class GoBoard(DebugInfoProvider, Timing):
                 # -> vp give us the plane
                 # the contour which belongs to those vp is the board
                 vp1, vp2 = self.get_vp(img) 
-                corners = self.detect_board_corners(vp1=vp1, vp2=vp2, img=img_c)
+                corners = self.__detect_board_corners(vp1=vp1, vp2=vp2, img=img_c)
             except NoVanishingPointsDetectedException:
                 return False
 
         elif PyGOSettings['CornerDetectionAlg'] == CORNER_DETECTION_ALG.FAST:
-            corners = self.detect_board_corners_fast(img_c)
+            corners = self.__detect_board_corners_fast(img_c)
         elif PyGOSettings['CornerDetectionAlg'] == CORNER_DETECTION_ALG.CPD:
-            corners = self.detect_board_cpd(img_c)
+            corners = self.__detect_board_cpd(img_c)
             
         if corners is None:
             logging.error("Could not detect Go-Board corners!")
@@ -464,7 +451,8 @@ class GoBoard(DebugInfoProvider, Timing):
         UISignals.emit(UIOnBoardDetected, self.extract(img) , corners, self.H)
         CoreSignals.emit(OnBoardGridSizeKnown, self.go_board_shifted)
 
-    def detect_board_cpd(self, img: B3CImage) -> NDArray:
+
+    def __detect_board_cpd(self, img: B3CImage) -> NDArray:
         lsd = cv2.createLineSegmentDetector()
         img_bw = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         lines = lsd.detect(img_bw)[0].squeeze()
@@ -602,26 +590,6 @@ class GoBoard(DebugInfoProvider, Timing):
             return True
         
         return False
-        
-        
-        #only split by 17 as we removed the border fields
-        px = np.array_split(sum_x, 17)
-        py = np.array_split(sum_y, 17)
-        idx_x = [np.argmax(x) for x in px]
-        idx_y = [np.argmax(x) for x in py]
-
-        idx_x_neg = [np.argmin(x) for x in px]
-        idx_y_neg = [np.argmin(x) for x in py]
-
-        
-
-
-        if np.std(idx_x) > 1.2 or np.std(idx_y) > 1.2:
-            logging.debug("std x: {}".format(np.std(idx_x)))
-            logging.debug("std y: {}".format(np.std(idx_y)))
-            return False
-        else:
-            return True
 
 
     def extract_borderless(self, img: B3CImage) -> B3CImage:
@@ -698,7 +666,6 @@ class GoBoard(DebugInfoProvider, Timing):
 
         H = cv2.findHomography(go_board_shifted, paired_corners, cv2.LMEDS)[0]
         refined_H = np.linalg.inv(H) @ np.linalg.inv(H_board)
-        img_warped_refined = cv2.warpPerspective(img, refined_H, limits)
 
         c = []
         corners__ = []
@@ -715,12 +682,6 @@ class GoBoard(DebugInfoProvider, Timing):
             cv2.circle(img, np.squeeze(c[-1]).astype(int), 1, (255,0,0), -1)
         c = np.squeeze(np.array(c),1).astype(int)
 
-        #cv2.imshow('updated corners', img)
-        #cv2.waitKey(1)
-
-        # detect lines -> when the corners are correct the lines should be almost perfectly
-        # vertical and horizontal
-        #lines = lsd.lsd_with_line_merge(img_)
         return np.array(c)
 
 
@@ -732,7 +693,6 @@ class GoBoard(DebugInfoProvider, Timing):
         img[mask==255] = 0
         return img
 
-    # detect round objects
     def _mask_stones(self, corners_warped: NDArray, img: B1CImage) -> B1CImage:
         if len(img.shape) == 3:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -765,11 +725,10 @@ class GoBoard(DebugInfoProvider, Timing):
         return mask
 
     def extract_intersections(self, corners: NDArray, img: B3CImage, go_board_shifted) -> NDArray:
-        if len(img.shape) == 3:
-            img__ = toGrayImage(img)
-        else:
+        if len(img.shape) != 3:
             raise ArgumentError("Image has wrong number of channels -> we need color[rgb]")
         
+        img__ = toGrayImage(img)
         stone_mask = self.get_mask_around_stones(corners, img)
 
         ft = cv2.goodFeaturesToTrack(img__, 19*19, 0.01, 10)
@@ -777,16 +736,12 @@ class GoBoard(DebugInfoProvider, Timing):
         idx = np.argwhere(stone_mask[ft[:,0,0].astype(int), ft[:,0,1].astype(int)] == 0)
         ft = ft[idx]
 
-        #for c in go_board_shifted:
-        #    cv2.circle(img, c.astype(int), 1, (0,0,255), 1)
         ft = np.squeeze(ft)
         dists = cdist(go_board_shifted, ft)
         paired = []
-        for i, c in enumerate(go_board_shifted):
+        for i, _ in enumerate(go_board_shifted):
             paired.append(ft[np.argmin(dists[i])])
-            #cv2.circle(img, paired[-1].astype(int), 2, (255,0,0), -1)
-        #cv2.imshow('shifted', img)
-        #cv2.waitKey(1)
+        
         paired = np.array(paired)
         return paired
 

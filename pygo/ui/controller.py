@@ -9,23 +9,7 @@ class Controller:
         self.connect_signals()
     
     def connect_signals(self):
-        # Connect UI signals to core methods
-        #UISignals.subscribe(OnStartNewGame, self.core.startNewGame)
-        #UISignals.subscribe(OnLoadHistory, self.core.History.load)
-        #UISignals.subscribe(OnSaveHistory, self.core.History.save)
-        #UISignals.subscribe(OnUndoMove, self.core.undoLastMove)
-        #UISignals.subscribe(OnRedoMove, self.core.redoMove)
-        #UISignals.subscribe(OnSetBoardSize, self.core.setBoardSize)
-        #UISignals.subscribe(OnSetKomi, self.core.setKomi)
-        #UISignals.subscribe(OnSetHandicapStones, self.core.setHandicapStones)
-        #UISignals.subscribe(OnPlayMove, self.core.playMove)
-        
-        # Connect core signals to UI methods
-        #CoreSignals.subscribe(OnGameStateUpdated, self.view.updateGameState)
-        #CoreSignals.subscribe(OnBoardUpdated, self.view.updateBoard)
-        #CoreSignals.subscribe(OnScoreUpdated, self.view.updateScore)
-        #CoreSignals.subscribe(OnHistoryLoaded, self.view.refreshHistoryView)
-        #CoreSignals.subscribe(OnHistorySaved, self.view.notifyHistorySaved)
+        self.view.connect_signals()
         UISignals.subscribe(NewInputFile, self._NewInputFile)
     
     def parse_args(self, args):
