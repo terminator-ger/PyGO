@@ -8,7 +8,7 @@ from pygo.Keyframes import History
 import importlib
 
 from pygo.Settings import CORNER_DETECTION_ALG, MoveValidationAlg, PyGOSettings
-from pygo.classifier import *
+from pygo.CircleClassifier import *
 from pygo.Motiondetection import *
 from pygo.GoBoard import GoBoard
 from pygo.utils.plot import Plot

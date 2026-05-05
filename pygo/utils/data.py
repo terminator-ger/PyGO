@@ -133,3 +133,7 @@ def load_and_augment_training_data(feat_fn):
  
     return X_train, y_train, X_test, y_test
 
+
+def toNP(x):
+    return x.detach().cpu().numpy()
+

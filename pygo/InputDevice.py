@@ -77,11 +77,11 @@ class InputDevice:
         CoreSignals().emit(PreviewNextFrame)
 
 
-    def pause_stream(self, *args):
+    def pause_stream(self, args):
         self.__is_paused = True
 
 
-    def unpause_stream(self, *args):
+    def unpause_stream(self, args):
         self.__is_paused = False
 
 

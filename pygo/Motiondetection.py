@@ -6,7 +6,7 @@ from pygo.utils.debug import DebugInfo, DebugInfoProvider, Timing
 from pygo.utils.image import toByteImage, toColorImage, toGrayImage
 from pygo.utils.typing import Image, B3CImage, Mask
 from pygo.Signals import *
-from pygo.classifier import CircleClassifier
+from pygo.CircleClassifier import CircleClassifier
 
 from enum import Enum, auto
 
