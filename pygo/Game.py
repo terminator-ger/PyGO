@@ -260,8 +260,7 @@ class Game(DebugInfoProvider, Timing):
             x = idx[0,0]
             y = idx[0,1]
             c = state[x,y]
-            rnd = random.randint(1,5) 
-            playsound('sounds/stone{}.wav'.format(rnd), block=False)
+            playsound('sounds/stone{}.wav'.format(random.randint(1,5)), block=False)
             c_str = N2C(c)
 
             print('{}: {}-{}'.format(c_str, x+1, y+1))
@@ -589,7 +588,7 @@ class Game(DebugInfoProvider, Timing):
 
                     moves.append("{}: {}-{}\n".format(n.upper(), 
                                                         coordinate_to_letter(y),
-                                                        x))
+                                                        x+1))
 
         return moves
 

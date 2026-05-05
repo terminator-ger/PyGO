@@ -23,6 +23,8 @@ from pygo.GoBoard import GoBoard
 from pygo.classifiers.BaseGoClassifier import Classifier
 from pygo.classifiers.CnnClassifier import CnnClassifier
 from pygo.classifiers.HOGSVMClassifier import HOGSVMClassifier
+from pygo.classifiers.MobilenetV4 import MobilenetV4Classifier
+from pygo.classifiers.Convnext import ConvnextClassifier
 
 from sklearn.ensemble import VotingClassifier
 
@@ -65,8 +67,9 @@ class EnsembleClassifier(Classifier, DebugInfoProvider, Timing):
         DebugInfoProvider.__init__(self)
 
         self.classifier = CnnClassifier("weights.pt")
-        self.classifier_2 = CnnClassifier("weights_2.pt")
-        self.classifier_3 = HOGSVMClassifier()
+        self.classifier_2 = ConvnextClassifier("convnext.pt")
+        self.classifier_3 = MobilenetV4Classifier("mobilenetv4.pt")
+        #self.classifier_3 = HOGSVMClassifier()
         self.ensemble = VotingClassifier(estimators=[
                             ('cnn0', self.classifier), 
                             ('cnn1', self.classifier_2), 
@@ -111,16 +114,17 @@ class EnsembleClassifier(Classifier, DebugInfoProvider, Timing):
 
     def predict(self, img: B3CImage) -> GoBoardClassification:
         patches = self.image_to_patches(img)
-        val = self.ensemble.predict(patches)
-        #cnn_pred          = self.classifier.predict_prob(self.image_to_patches(img))
-        #cnn2_pred         = self.classifier_2.predict_prob(self.image_to_patches(img))
+        #val = self.ensemble.predict(patches)
+        cnn_pred          = self.classifier.predict_proba(self.image_to_patches(img))
+        cnn2_pred         = self.classifier_2.predict_proba(self.image_to_patches(img))
+        cnn3_pred         = self.classifier_3.predict_proba(self.image_to_patches(img))
         #hog_pred          = self.classifier_3.predict_prob(self.image_to_patches(img))
-        #detections_cnn = []
-        #detections_cnn2 = []
-        #detections_svm = []
+        detections_cnn = []
+        detections_cnn2 = []
+        detections_svm = []
                
        
-        #val = cnn_pred + cnn2_pred
+        val = cnn_pred + cnn2_pred + cnn3_pred
         val_tmp = np.argmax(val, axis=-1)
         val = np.zeros_like(val_tmp)
         # remap classes

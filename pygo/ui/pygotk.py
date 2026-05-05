@@ -192,6 +192,12 @@ class PyGOTk:
         UISignals.subscribe(UIVideoFrameCounterUpdated, self.video_frame_counter_udpated)
         UISignals.subscribe(UIShowVideoUI, self.show_video_ui)
         UISignals.subscribe(UIHideVideoUI, self.hide_video_ui)
+        CoreSignals.subscribe(InputStreamEnded, self._exit)
+   
+    def _exit(self, args=None):
+        self.QUIT = True
+        self.root.destroy()
+        
     
     def shrink_view(self):
         self.scale -= 0.25
@@ -488,6 +494,11 @@ class PyGOTk:
         self.settings_window.destroy()
 
 
+    def quit(self):
+        self.QUIT = True
+        self.root.destroy()
+        CoreSignals.emit(Exit)
+
     def on_closing(self):
         if self.pygo.Game.game_tree is not None and len(self.pygo.Game.game_tree.get_root()) > 0:
             if tk.messagebox.askokcancel("Quit", "Do you want to quit without saving?"):
@@ -497,11 +508,6 @@ class PyGOTk:
             self.QUIT = True
             self.root.destroy()
         CoreSignals.emit(Exit)
-
-    def quit(self):
-        self.root.quit()
-        self.root.destroy()
-
 
     def onBoardDetect(self) -> None:
         # ask for board detection

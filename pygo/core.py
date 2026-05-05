@@ -7,7 +7,7 @@ from pygo.BoardTracker import BoardTracker
 from pygo.Keyframes import History
 import importlib
 
-from pygo.Settings import CORNER_DETECTION_ALG, MoveValidationAlg
+from pygo.Settings import CORNER_DETECTION_ALG, MoveValidationAlg, PyGOSettings
 from pygo.classifier import *
 from pygo.Motiondetection import *
 from pygo.GoBoard import GoBoard
@@ -60,6 +60,8 @@ class PyGO(Timing):
         CoreSignals.subscribe(DetectHandicap, self.__analyzeHandicap)
         CoreSignals.subscribe(PreviewNextFrame, self.__force_image_load)
         CoreSignals.subscribe(OnSettingsChanged, self.__settings_updated)
+        if PyGOSettings['finishOnEndStream']:
+            CoreSignals.subscribe(InputStreamEnded, self._exit)
 
     def __settings_updated(self, args):
         new_settings = args[0]
@@ -100,7 +102,7 @@ class PyGO(Timing):
         if self.Board.hasEstimate:
             self.img_cam = self.input_stream.read_ignore_lock()
             self.img_cropped = self.Board.extract(self.img_cam)
- 
+    
 
     def startNewGame(self, size=19) -> None:
         #unfreeze to allow reading of new frame
@@ -114,7 +116,7 @@ class PyGO(Timing):
             self.img_cropped = self.Board.extract(self.img_cam)
 
         # pause the game 
-        CoreSignals.emit(GamePause)
+        #CoreSignals.emit(GamePause)
 
 
     def loop10x(self) -> None:

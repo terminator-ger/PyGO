@@ -24,11 +24,12 @@ PyGOSettings = {
     'StaticBoard': True,
     'Export': True,
     'CornerDetectionAlg': CORNER_DETECTION_ALG.CPD,
+    'finishOnEndStream': True,
 
     # Game
     'AllowUndo': False,
     'Backtrack': False,
-    'MoveValidation': MoveValidationAlg.TWO_MOVES
+    'MoveValidation': MoveValidationAlg.NONE
 }
 
 

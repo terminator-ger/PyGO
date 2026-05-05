@@ -94,6 +94,9 @@ class OnCameraGeometryChanged(Signals):
 class OnInputChanged(Signals):
     pass
 
+class InputStreamEnded(Signals):
+    pass
+
 class OnGridSizeUpdated(Signals):
     pass
 

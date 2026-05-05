@@ -26,3 +26,5 @@ pygo/video_analyze.py
 notebooks
 data
 export
+*.bat
+.vscode/**

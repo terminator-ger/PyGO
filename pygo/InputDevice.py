@@ -31,9 +31,9 @@ class InputDevice:
         if file is not None:
             self.file = file
             self.set_input_file_stream(file)
-        
-        self.__update_ports()
-        self.__auto_calibrate()
+        else: 
+            self.__update_ports()
+            self.__auto_calibrate()
 
         CoreSignals().subscribe(GamePause, self.pause_stream)
         CoreSignals().subscribe(GameRun, self.unpause_stream)
@@ -161,6 +161,7 @@ class InputDevice:
     def __get_next_frame(self) -> np.ndarray:
         ret, img = self.cam.read()
         if not ret:
+            CoreSignals().emit(InputStreamEnded)
             return self.last_frame
         if self.limit_resolution:
             img_ = cv2.resize(img, dsize=None, 
