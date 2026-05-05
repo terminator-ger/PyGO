@@ -152,90 +152,90 @@ class PyGO(Timing):
 
     
     def run_once(self) -> None:
-            CoreSignals.process_signals()
-            if not self.input_is_frozen:
-                self.img_cam = self.input_stream.read()
+        CoreSignals.process_signals()
+        if not self.input_is_frozen:
+            self.img_cam = self.input_stream.read()
+            
+        if not self.Board.hasEstimate:
+            img = self.Board.get_corners_overlay(self.img_cam)
+            self.img_overlay = img
+            self.img_virtual = img
+            self.img_cropped = self.img_cam
+            return
 
-            if self.Board.hasEstimate:
-                self.img_cropped =  self.Board.extract(self.img_cam)
-
-                if self.Motiondetection.hasNoMotion(self.img_cropped) \
-                    and not self.Game.isPaused():
-
-                    
-                    if self.PatchClassifier.hasWeights:
-                        if not PyGOSettings['StaticBoard'] and self.BoardTracker.update(self.Board.track_corners(self.img_cam)):
-                            self.Board.calib(self.img_cam)
-                            self.img_cropped =  self.Board.extract(self.img_cam)
-
-                        val = self.PatchClassifier.predict(self.img_cropped)
-
-                        self.img_overlay = self.Plot.plot_overlay(val, 
-                                                        self.Board.go_board_shifted, 
+        self.img_cropped =  self.Board.extract(self.img_cam)
+        if not self.Motiondetection.hasNoMotion(self.img_cropped) or self.Game.isPaused():
+            #overlay old state during motion
+            self.img_overlay = self.Plot.plot_overlay(self.Game.state,
+                                                        self.Board.go_board_shifted,
                                                         self.img_cropped,
                                                         self.Game.manualMoves,
                                                         self.Game.last_x,
                                                         self.Game.last_y,
                                                         self.Board.border_size)
-                        self.img_virtual = self.Plot.plot_virt_grid(val, 
-                                                        self.Board.grd_overlay, 
-                                                        self.Board.grid_img,
-                                                        self.Game.manualMoves,
-                                                        self.Game.last_x,
-                                                        self.Game.last_y)
+            self.img_virtual = self.Plot.plot_virt_grid(self.Game.state, 
+                                                self.Board.grd_overlay, 
+                                                self.Board.grid_img,
+                                                self.Game.manualMoves,
+                                                self.Game.last_x,
+                                                self.Game.last_y)
+            return
+ 
+        if not self.PatchClassifier.hasWeights:
+            return
+        
+        if not PyGOSettings['StaticBoard'] and self.BoardTracker.update(self.Board.track_corners(self.img_cam)):
+            self.Board.calib(self.img_cam)
+            self.img_cropped =  self.Board.extract(self.img_cam)
+
+        val = self.PatchClassifier.predict(self.img_cropped)
+
+        self.img_overlay = self.Plot.plot_overlay(val, 
+                                        self.Board.go_board_shifted, 
+                                        self.img_cropped,
+                                        self.Game.manualMoves,
+                                        self.Game.last_x,
+                                        self.Game.last_y,
+                                        self.Board.border_size)
+        self.img_virtual = self.Plot.plot_virt_grid(val, 
+                                        self.Board.grd_overlay, 
+                                        self.Board.grid_img,
+                                        self.Game.manualMoves,
+                                        self.Game.last_x,
+                                        self.Game.last_y)
 
 
-                        self.Game.updateState(val)
-                        self.update_history(val)
-                        
-                        if PyGOSettings['Export']:
-                            video = os.path.splitext(os.path.split(self.input_stream.current_port)[1])[0]
-                            filename = f"{self.input_stream.get_time():.2f}.png".format()
-                            filename_debug = f"{self.input_stream.get_time():.2f}_debug.png"
-                            base_path = importlib.resources.files('data').joinpath(video)
-                            out_path       = base_path.joinpath('labels.parquet')
-                            img_path       = base_path.joinpath(filename)
-                            img_path_debug = base_path.joinpath(filename_debug)
-                            os.makedirs(base_path, exist_ok=True)
-                            cv2.imwrite(img_path, self.img_cam)
-                            cv2.imwrite(img_path_debug, self.img_overlay)
-                            self.output.append({
-                                "filename": filename,
-                                "board_size": self.Game.board_size,
-                                "labels": self.Game.getCurrentState().reshape(-1)
-                            })
-                            df  = pd.DataFrame(data=self.output)
-                            df.to_parquet(out_path, compression='gzip')
+        self.Game.updateState(val)
+        self.update_history(val)
+        
+        if PyGOSettings['Export']:
+            video = os.path.splitext(os.path.split(self.input_stream.current_port)[1])[0]
+            filename = f"{self.input_stream.get_time():.2f}.png".format()
+            filename_debug = f"{self.input_stream.get_time():.2f}_debug.png"
+            base_path = importlib.resources.files('data').joinpath(video)
+            out_path       = base_path.joinpath('labels.parquet')
+            img_path       = base_path.joinpath(filename)
+            img_path_debug = base_path.joinpath(filename_debug)
+            os.makedirs(base_path, exist_ok=True)
+            cv2.imwrite(img_path, self.img_cam)
+            cv2.imwrite(img_path_debug, self.img_overlay)
+            self.output.append({
+                "filename": filename,
+                "board_size": self.Game.board_size,
+                "labels": self.Game.getCurrentState().reshape(-1)
+            })
+            df  = pd.DataFrame(data=self.output)
+            df.to_parquet(out_path, compression='gzip')
 
-                        if self.input_stream.is_video and PyGOSettings['Backtrack']:
-                            last_t, kf_count = self.History.how_many_kf_since_last_update()
-                            logging.warning("{} Keyframes added without an update to the game state".format(kf_count))
-                            if kf_count > 1:
-                                self.backtrack(from_=last_t)
+        if self.input_stream.is_video and PyGOSettings['Backtrack']:
+            last_t, kf_count = self.History.how_many_kf_since_last_update()
+            logging.warning("{} Keyframes added without an update to the game state".format(kf_count))
+            if kf_count > 1:
+                self.backtrack(from_=last_t)
 
-                        if self.Katrain is not None:
-                            self.Katrain.send(self.msg)
-                else:
-                    #overlay old state during motion
-                    self.img_overlay = self.Plot.plot_overlay(self.Game.state,
-                                                                self.Board.go_board_shifted,
-                                                                self.img_cropped,
-                                                                self.Game.manualMoves,
-                                                                self.Game.last_x,
-                                                                self.Game.last_y,
-                                                                self.Board.border_size)
-                    self.img_virtual = self.Plot.plot_virt_grid(self.Game.state, 
-                                                        self.Board.grd_overlay, 
-                                                        self.Board.grid_img,
-                                                        self.Game.manualMoves,
-                                                        self.Game.last_x,
-                                                        self.Game.last_y)
-            else:
-                img = self.Board.get_corners_overlay(self.img_cam)
-                self.img_overlay = img
-                self.img_virtual = img
-                self.img_cropped = self.img_cam
-            
+        if self.Katrain is not None:
+            self.Katrain.send(self.msg)
+       
 
     def backtrack(self, from_=None) -> None:
         # halt the stream
