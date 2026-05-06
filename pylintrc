@@ -1,0 +1,6 @@
+# Source - https://stackoverflow.com/a/62204286
+# Posted by Brett Cannon
+# Retrieved 2026-05-06, License - CC BY-SA 4.0
+
+[TYPECHECK]
+ignored-modules=cv2

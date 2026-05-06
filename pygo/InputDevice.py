@@ -46,32 +46,32 @@ class InputDevice:
 
     def _forward(self, args):
         cur = self.get_pos()  / self.fps
-        next = cur + 60 
-        self.frame_n = min(next, self.frames_total)
+        next_frame = cur + 60 
+        self.frame_n = min(next_frame, self.frames_total)
         self._set_pos(self.frame_n)
         CoreSignals().emit(PreviewNextFrame)
 
 
     def _forward10(self, args):
         cur = self.get_pos()  / self.fps
-        next = cur + 10 
-        self.frame_n = min(next, self.frames_total)
+        next_frame = cur + 10 
+        self.frame_n = min(next_frame, self.frames_total)
         self._set_pos(self.frame_n)
         CoreSignals().emit(PreviewNextFrame)
 
 
     def _backward(self, args):
         cur = self.get_pos()  / self.fps
-        next = cur - 60
-        self.frame_n = max(next, 0)
+        next_frame = cur - 60
+        self.frame_n = max(next_frame, 0)
         self._set_pos(self.frame_n)
         CoreSignals().emit(PreviewNextFrame)
 
 
     def _backward10(self, args):
         cur = self.get_pos()  / self.fps
-        next = cur - 10
-        self.frame_n = max(next, 0)
+        next_frame = cur - 10
+        self.frame_n = max(next_frame, 0)
         self._set_pos(self.frame_n)
         CoreSignals().emit(PreviewNextFrame)
 
@@ -84,15 +84,18 @@ class InputDevice:
         self.__is_paused = False
 
 
-    def get_length(self) -> Optional[int]:
+    def get_length(self) -> Optional[float]:
         return self.frames_total
 
 
     def get_pos(self) -> Optional[int]:
+        if self.cam is None:
+            raise Exception("No media Device initialized")
+ 
         fp = self.cam.get(cv2.CAP_PROP_POS_FRAMES)
         if fp == -1:
             return None
-        return fp
+        return int(fp)
 
 
     def get_time(self) -> Optional[float]:
@@ -100,6 +103,8 @@ class InputDevice:
             returns time in with seconds as base
             5.2 -> 5 sec 200 ms
         '''
+        if self.cam is None:
+            raise Exception("No media Device initialized")
         f = self.cam.get(cv2.CAP_PROP_POS_FRAMES)
         return f / self.fps
 
@@ -109,6 +114,7 @@ class InputDevice:
             set the time in floating second format
         '''
         self._set_pos(args[0])
+
 
     def set_pos_90(self, args) -> None:
         '''
@@ -126,7 +132,7 @@ class InputDevice:
             self.cam.set(cv2.CAP_PROP_POS_FRAMES, frame)
 
 
-    def set_input_file_stream(self, file : str = None) -> None:
+    def set_input_file_stream(self, file : str | None = None) -> None:
         if self.cam is not None:
             self.cam.release()
         self.default = file
@@ -154,7 +160,7 @@ class InputDevice:
         delta = np.array([self.scale_factor*height, self.scale_factor*width]) - np.array(self.limit_resolution)
         self.dx = int(delta[0])
         self.dy = int(delta[1])
-        CoreSignals().emit(OnInputChanged)
+        CoreSignals().emit(OnInputChanged, self.is_video, self.frame_n)
     
         
     def __get_next_frame(self) -> np.ndarray:

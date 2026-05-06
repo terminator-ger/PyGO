@@ -594,25 +594,6 @@ class Game(DebugInfoProvider, Timing):
 
  
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     def __getNeighbours(self, state: GoBoardClassification, 
                             x:int, 
                             y:int, 
@@ -631,10 +612,6 @@ class Game(DebugInfoProvider, Timing):
                 else:
                     other_nbr.append((__x, __y))
         return (other_nbr, same_nbr)
-
-
-
-
 
 
 

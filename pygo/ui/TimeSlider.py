@@ -116,6 +116,15 @@ class TimeSlider(tk.Frame):
         self._draw()
         self._update_buttons(0)
         self.shift_to_time(0)
+        #CoreSignals.subscribe(OnInputChanged, self.input_changed)
+    
+    def input_changed(self, *args):
+        print(args)
+        is_video = args[0]
+        
+        self.reset()
+        if is_video:
+            self.on_update_time(args[1])
 
 
     def seek(self, event):

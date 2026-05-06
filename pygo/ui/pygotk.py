@@ -96,7 +96,6 @@ class PyGOTk:
         debuglevelmenu = tk.Menu(debugmenu, tearoff=0)
         debuglevelmenu.add_checkbutton(label='Info', command=self.setLogLevelInfo)
         debuglevelmenu.add_checkbutton(label='Debug', command=self.setLogLevelDebug)
-        debuglevelmenu.add_checkbutton(label='debug', command=self.setLogLeveldebug)
         debuglevelmenu.add_checkbutton(label='Warn', command=self.setLogLevelWarn)
 
         debugviewsmenu = tk.Menu(debugmenu, tearoff=0)
@@ -194,12 +193,12 @@ class PyGOTk:
         UISignals.subscribe(UIShowVideoUI, self.show_video_ui)
         UISignals.subscribe(UIHideVideoUI, self.hide_video_ui)
         CoreSignals.subscribe(InputStreamEnded, self._exit)
+  
    
     def _exit(self, args=None):
         self.QUIT = True
         self.root.destroy()
-        
-    
+
     def shrink_view(self):
         self.scale -= 0.25
         self.updateGrid()
@@ -373,9 +372,6 @@ class PyGOTk:
     def setLogLevelDebug(self) -> None:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    def setLogLeveldebug(self) -> None:
-        logging.getLogger().setLevel(logging.debug)
-
     def setLogLevelWarn(self) -> None:
         logging.getLogger().setLevel(logging.WARN)
 
@@ -384,12 +380,20 @@ class PyGOTk:
         if '/dev/video' in dev:
             #opencv only uses the number
             dev_id = int(dev[-1])
+            self.hide_video_ui()
+            self.go_tree_pause["state"] = "normal"
             UISignals.emit(NewInputFile, dev_id)
         else:
             self.video_str = fd.askopenfilename(filetypes=[('mp4', '*.mp4'),
             ])
             if self.video_str:
+                self.show_video_ui()
+                self.time_slider.reset()
+                self.time_slider.on_update_time(self.pygo.input_stream.get_length())
+                self.onGameNew()
+                self.go_tree_pause["state"] = "disabled"
                 UISignals.emit(NewInputFile, self.video_str)
+                
                 
     def onCornerDetectionAlgChanged(self, *args):
         PyGOSettings['CornerDetectionAlg'] = CORNER_DETECTION_ALG[self.settings['CornerDetectionAlg'].get()]

@@ -3,7 +3,6 @@ import logging
 import numpy as np
 from dataclasses import dataclass
 from typing import Tuple
-from sre_parse import State
 from pygo.utils.color import C2N
 from pygo.utils.typing import B3CImage, GoBoardClassification
 from pygo.Signals import *

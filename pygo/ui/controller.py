@@ -1,6 +1,6 @@
 from pygo.ui.pygotk import PyGOTk
 from pygo.core import PyGO
-from pygo.Signals import *
+from pygo.Signals import UISignals, CoreSignals, GameReset, NewInputFile
 
 class Controller:
     def __init__(self, view: PyGOTk, core: PyGO):
@@ -25,6 +25,7 @@ class Controller:
             self.view.hide_video_ui()
             self.view.go_tree_pause["state"] = "normal"
         else:
+            # video
             self.view.show_video_ui()
             self.view.time_slider.reset()
             self.view.time_slider.on_update_time(self.core.input_stream.get_length())
