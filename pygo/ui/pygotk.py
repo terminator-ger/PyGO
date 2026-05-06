@@ -601,9 +601,9 @@ class PyGOTk:
             self.tkimage = self.__np2tk(self.pygo.img_cropped)
         elif view == 2:
             self.tkimage = self.__np2tk(self.pygo.img_virtual)
-        
-        self.go_board_display.configure(image=self.tkimage)
-        self.go_board_display.image = self.tkimage
+        if self.tkimage is not None: 
+            self.go_board_display.configure(image=self.tkimage)
+            self.go_board_display.image = self.tkimage
         
         self.root.after(1, self.update)
 

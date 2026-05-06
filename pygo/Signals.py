@@ -22,7 +22,7 @@ class UISignals(Signals):
     def emit(sig, *args):
         sig = sig.__name__
         if len(args) == 0:
-            args = None
+            args = ()
         logging.debug("UISignals emit: {}".format(sig))
         if sig in UISignals.subs.keys():
             UISignals.emittedQ.put((sig, args))
@@ -40,6 +40,7 @@ class UISignals(Signals):
 class CoreSignals(Signals):
     subs = {}
     emittedQ = Queue()
+    
     @staticmethod
     def subscribe(sig, fun : Callable):
         logging.debug("Function {} was registered for {}".format(fun , sig))
@@ -52,7 +53,7 @@ class CoreSignals(Signals):
     def emit(sig, *args):
         sig = sig.__name__
         if len(args) == 0:
-            args = None
+            args = ()
         logging.debug("CoreSignals emit: {}".format(sig))
         if sig in CoreSignals.subs.keys():
             CoreSignals.emittedQ.put((sig, args))
